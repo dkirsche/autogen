@@ -7,6 +7,8 @@ import logging
 import inspect
 from flaml.automl.logger import logger_formatter
 from pydantic import ValidationError
+from llm_logger import postgres_logger
+import datetime
 
 from autogen.oai.openai_utils import get_key, OAI_PRICE1K
 from autogen.token_count_utils import count_token
@@ -33,6 +35,8 @@ if not logger.handlers:
     _ch = logging.StreamHandler(stream=sys.stdout)
     _ch.setFormatter(logger_formatter)
     logger.addHandler(_ch)
+
+llm_logger = postgres_logger.PostgresLogger(os.getenv("POSTGRES_URL"))
 
 
 class OpenAIWrapper:
@@ -238,6 +242,7 @@ class OpenAIWrapper:
             if cache_seed is not None:
                 with diskcache.Cache(f"{self.cache_path_root}/{cache_seed}") as cache:
                     # Try to get the response from cache
+                    start_time = datetime.datetime.utcnow()
                     key = get_key(params)
                     response = cache.get(key, None)
 
@@ -249,6 +254,17 @@ class OpenAIWrapper:
                             response.cost = self.cost(response)
                             cache.set(key, response)
                         self._update_usage_summary(response, use_cache=True)
+
+                        # Log the cache hit
+                        llm_logger.insert_chat_completion(
+                            request=params,
+                            response=response,
+                            is_cached=1,
+                            cost=response.cost,
+                            start_time=start_time,
+                            end_time=datetime.datetime.utcnow(),
+                        )
+
                         # check the filter
                         pass_filter = filter_func is None or filter_func(context=context, response=response)
                         if pass_filter or i == last:
@@ -258,9 +274,18 @@ class OpenAIWrapper:
                             return response
                         continue  # filter is not passed; try the next config
             try:
+                start_time = datetime.datetime.utcnow()
                 response = self._completions_create(client, params)
             except APIError as err:
                 error_code = getattr(err, "code", None)
+                llm_logger.insert_chat_completion(
+                    request=params,
+                    response=f"error_code:{error_code}, config {i} failed",
+                    is_cached=0,
+                    cost=0,
+                    start_time=start_time,
+                    end_time=datetime.datetime.utcnow(),
+                )
                 if error_code == "content_filter":
                     # raise the error for content_filter
                     raise
@@ -275,7 +300,14 @@ class OpenAIWrapper:
                     # Cache the response
                     with diskcache.Cache(f"{self.cache_path_root}/{cache_seed}") as cache:
                         cache.set(key, response)
-
+                llm_logger.insert_chat_completion(
+                    request=params,
+                    response=response,
+                    is_cached=0,
+                    cost=response.cost,
+                    start_time=start_time,
+                    end_time=datetime.datetime.utcnow(),
+                )
                 # check the filter
                 pass_filter = filter_func is None or filter_func(context=context, response=response)
                 if pass_filter or i == last:

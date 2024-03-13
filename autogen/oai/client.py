@@ -257,8 +257,8 @@ class OpenAIWrapper:
 
                         # Log the cache hit
                         llm_logger.insert_chat_completion(
-                            request=params,
-                            response=response,
+                            request=str(params),
+                            response=str(response),
                             is_cached=1,
                             cost=response.cost,
                             start_time=start_time,
@@ -279,7 +279,7 @@ class OpenAIWrapper:
             except APIError as err:
                 error_code = getattr(err, "code", None)
                 llm_logger.insert_chat_completion(
-                    request=params,
+                    request=str(params),
                     response=f"error_code:{error_code}, config {i} failed",
                     is_cached=0,
                     cost=0,
@@ -301,8 +301,8 @@ class OpenAIWrapper:
                     with diskcache.Cache(f"{self.cache_path_root}/{cache_seed}") as cache:
                         cache.set(key, response)
                 llm_logger.insert_chat_completion(
-                    request=params,
-                    response=response,
+                    request=str(params),
+                    response=str(response),
                     is_cached=0,
                     cost=response.cost,
                     start_time=start_time,

@@ -1,11 +1,15 @@
+#!/usr/bin/env python3 -m pytest
+
 import inspect
-import pytest
 import json
-import sys
 import os
+import sys
+
+import pytest
+from test_assistant_agent import KEY_LOC, OAI_CONFIG_LIST
+
 import autogen
 from autogen.math_utils import eval_math_responses
-from test_assistant_agent import KEY_LOC, OAI_CONFIG_LIST
 from autogen.oai.client import TOOL_ENABLED
 
 try:
@@ -19,8 +23,10 @@ else:
 
 @pytest.mark.skipif(skip_openai or not TOOL_ENABLED, reason="openai>=1.1.0 not installed or requested to skip")
 def test_eval_math_responses():
-    config_list = autogen.config_list_from_models(
-        KEY_LOC, model_list=["gpt-4-0613", "gpt-3.5-turbo-0613", "gpt-3.5-turbo-16k"]
+    config_list = autogen.config_list_from_json(
+        OAI_CONFIG_LIST,
+        KEY_LOC,
+        filter_dict={"tags": ["tool"]},
     )
     tools = [
         {
@@ -74,9 +80,15 @@ def test_eval_math_responses():
 
 @pytest.mark.skipif(skip_openai or not TOOL_ENABLED, reason="openai>=1.1.0 not installed or requested to skip")
 def test_eval_math_responses_api_style_function():
-    config_list = autogen.config_list_from_models(
+    # config_list = autogen.config_list_from_models(
+    #     KEY_LOC,
+    #     model_list=["gpt-4-0613", "gpt-3.5-turbo-0613", "gpt-3.5-turbo-16k"],
+    # )
+
+    config_list = autogen.config_list_from_json(
+        OAI_CONFIG_LIST,
         KEY_LOC,
-        model_list=["gpt-4-0613", "gpt-3.5-turbo-0613", "gpt-3.5-turbo-16k"],
+        filter_dict={"tags": ["tool"]},
     )
     functions = [
         {
@@ -132,7 +144,7 @@ def test_update_tool():
     config_list_gpt4 = autogen.config_list_from_json(
         OAI_CONFIG_LIST,
         filter_dict={
-            "model": ["gpt-4", "gpt-4-0314", "gpt4", "gpt-4-32k", "gpt-4-32k-0314", "gpt-4-32k-v0314"],
+            "tags": ["gpt-4"],
         },
         file_location=KEY_LOC,
     )

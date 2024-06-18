@@ -167,74 +167,7 @@ Note: if using a custom model client (see [here](/blog/2024/01/26/Custom-Models)
 
 ## Caching
 
-API call results are cached locally and reused when the same request is issued.
-This is useful when repeating or continuing experiments for reproducibility and cost saving.
-
-Starting version 0.2.8, a configurable context manager allows you to easily configure
-the cache, using either DiskCache or Redis.
-All `OpenAIWrapper` created inside the context manager can use the same cache
-through the constructor.
-
-```python
-from autogen import Cache
-
-with Cache.redis(redis_url="redis://localhost:6379/0") as cache:
-    client = OpenAIWrapper(..., cache=cache)
-    client.create(...)
-
-with Cache.disk() as cache:
-    client = OpenAIWrapper(..., cache=cache)
-    client.create(...)
-```
-
-You can also set a cache directly in the `create()` method.
-
-```python
-client = OpenAIWrapper(...)
-with Cache.disk() as cache:
-    client.create(..., cache=cache)
-```
-
-You can vary the `cache_seed` parameter to get different LLM output while
-still using cache.
-
-```python
-# Setting the cache_seed to 1 will use a different cache from the default one
-# and you will see different output.
-with Cache.disk(cache_seed=1) as cache:
-    client.create(..., cache=cache)
-```
-
-By default DiskCache uses `.cache` for storage. To change the cache directory,
-set `cache_path_root`:
-
-```python
-with Cache.disk(cache_path_root="/tmp/autogen_cache") as cache:
-    client.create(..., cache=cache)
-```
-
-### Turnning off cache
-
-For backward compatibility, DiskCache is always enabled by default
-with `cache_seed` set to 41. To fully disable it, set `cache_seed` to None.
-
-```python
-# Turn off cache in constructor,
-client = OpenAIWrapper(..., cache_seed=None)
-# or directly in create().
-client.create(..., cache_seed=None)
-```
-
-### Difference between `cache_seed` and openai's `seed` parameter
-
-openai v1.1 introduces a new param `seed`.
-The differences between autogen's `cache_seed` and openai's `seed`:
-    - autogen uses local disk cache to guarantee the exactly same output is produced
-    for the same input and when cache is hit, no openai api call will be made.
-    - openai's `seed` is a best-effort deterministic sampling with no guarantee
-    of determinism. When using openai's `seed` with `cache_seed` set to None,
-    even for the same input, an openai api call will be made and there is
-    no guarantee for getting exactly the same output.
+Moved to [here](/docs/topics/llm-caching).
 
 ## Error handling
 
@@ -250,7 +183,7 @@ client = OpenAIWrapper(
             "api_key": os.environ.get("AZURE_OPENAI_API_KEY"),
             "api_type": "azure",
             "base_url": os.environ.get("AZURE_OPENAI_API_BASE"),
-            "api_version": "2023-08-01-preview",
+            "api_version": "2024-02-01",
         },
         {
             "model": "gpt-3.5-turbo",
@@ -279,7 +212,7 @@ For convenience, we provide a number of utility functions to load config lists.
 - `config_list_from_models`: Creates configurations based on a provided list of models, useful when targeting specific models without manually specifying each configuration.
 - `config_list_from_dotenv`: Constructs a configuration list from a `.env` file, offering a consolidated way to manage multiple API configurations and keys from a single file.
 
-We suggest that you take a look at this [notebook](/docs/llm_configuration) for full code examples of the different methods to configure your model endpoints.
+We suggest that you take a look at this [notebook](/docs/topics/llm_configuration) for full code examples of the different methods to configure your model endpoints.
 
 ### Logic error
 
@@ -368,10 +301,91 @@ context.append(
 )
 response = client.create(context=context, messages=messages, **config)
 ```
+## Logging
 
-## Logging (for openai<1)
+When debugging or diagnosing an LLM-based system, it is often convenient to log the API calls and analyze them.
 
-When debugging or diagnosing an LLM-based system, it is often convenient to log the API calls and analyze them. `autogen.Completion` and `autogen.ChatCompletion` offer an easy way to collect the API call histories. For example, to log the chat histories, simply run:
+### For openai >= 1
+
+Logging example: [View Notebook](https://github.com/microsoft/autogen/blob/main/notebook/agentchat_logging.ipynb)
+
+#### Start logging:
+```python
+import autogen.runtime_logging
+
+autogen.runtime_logging.start(logger_type="sqlite", config={"dbname": "YOUR_DB_NAME"})
+```
+`logger_type` and `config` are both optional. Default logger type is SQLite logger, that's the only one available in autogen at the moment. If you want to customize the database name, you can pass in through config, default is `logs.db`.
+
+#### Stop logging:
+```python
+autogen.runtime_logging.stop()
+```
+
+#### LLM Runs
+
+AutoGen logging supports OpenAI's llm message schema. Each LLM run is saved in `chat_completions` table includes:
+- session_id: an unique identifier for the logging session
+- invocation_id: an unique identifier for the logging record
+- client_id: an unique identifier for the Azure OpenAI/OpenAI client
+- request: detailed llm request, see below for an example
+- response: detailed llm response, see below for an example
+- cost: total cost for the request and response
+- start_time
+- end_time
+
+##### Sample Request
+```json
+{
+  "messages":[
+    {
+      "content":"system_message_1",
+      "role":"system"
+    },
+    {
+      "content":"user_message_1",
+      "role":"user"
+    }
+  ],
+  "model":"gpt-4",
+  "temperature": 0.9
+}
+```
+
+##### Sample Response
+```json
+{
+  "id": "id_1",
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "logprobs": null,
+      "message": {
+        "content": "assistant_message_1",
+        "role": "assistant",
+        "function_call": null,
+        "tool_calls": null
+      }
+    }
+  ],
+  "created": "<timestamp>",
+  "model": "gpt-4",
+  "object": "chat.completion",
+  "system_fingerprint": null,
+  "usage": {
+    "completion_tokens": 155,
+    "prompt_tokens": 53,
+    "total_tokens": 208
+  }
+}
+```
+
+Learn more about [request and response format](https://platform.openai.com/docs/api-reference/chat/create)
+
+### For openai < 1
+
+`autogen.Completion` and `autogen.ChatCompletion` offer an easy way to collect the API call histories. For example, to log the chat histories, simply run:
 ```python
 autogen.ChatCompletion.start_logging()
 ```

@@ -1,13 +1,16 @@
+#!/usr/bin/env python3 -m pytest
+
 import os
-import sys
 import re
+import sys
+
 import pytest
+
 from autogen import UserProxyAgent, config_list_from_json
 from autogen.oai.openai_utils import filter_config
-from autogen.cache import Cache
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "../.."))
-from conftest import skip_openai  # noqa: E402
+from conftest import MOCK_OPEN_AI_API_KEY, reason, skip_openai  # noqa: E402
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from test_assistant_agent import KEY_LOC, OAI_CONFIG_LIST  # noqa: E402
@@ -24,20 +27,13 @@ else:
     skip_all = False
 
 try:
-    from openai import OpenAI
-except ImportError:
-    skip_oai = True
-else:
-    skip_oai = False or skip_openai
-
-try:
     BING_API_KEY = os.environ["BING_API_KEY"]
 except KeyError:
     skip_bing = True
 else:
     skip_bing = False
 
-if not skip_oai:
+if not skip_openai:
     config_list = config_list_from_json(env_or_file=OAI_CONFIG_LIST, file_location=KEY_LOC)
 
 
@@ -48,10 +44,12 @@ if not skip_oai:
 def test_web_surfer() -> None:
     with pytest.MonkeyPatch.context() as mp:
         # we mock the API key so we can register functions (llm_config must be present for this to work)
-        mp.setenv("OPENAI_API_KEY", "mock")
+        mp.setenv("OPENAI_API_KEY", MOCK_OPEN_AI_API_KEY)
         page_size = 4096
         web_surfer = WebSurferAgent(
-            "web_surfer", llm_config={"config_list": []}, browser_config={"viewport_size": page_size}
+            "web_surfer",
+            llm_config={"model": "gpt-4", "config_list": []},
+            browser_config={"viewport_size": page_size},
         )
 
         # Sneak a peak at the function map, allowing us to call the functions for testing here
@@ -99,8 +97,8 @@ def test_web_surfer() -> None:
 
 
 @pytest.mark.skipif(
-    skip_oai,
-    reason="do not run if oai is not installed",
+    skip_all or skip_openai,
+    reason="dependency is not installed OR" + reason,
 )
 def test_web_surfer_oai() -> None:
     llm_config = {"config_list": config_list, "timeout": 180, "cache_seed": 42}
@@ -133,17 +131,16 @@ def test_web_surfer_oai() -> None:
         is_termination_msg=lambda x: True,
     )
 
-    with Cache.disk():
-        # Make some requests that should test function calling
-        user_proxy.initiate_chat(web_surfer, message="Please visit the page 'https://en.wikipedia.org/wiki/Microsoft'")
+    # Make some requests that should test function calling
+    user_proxy.initiate_chat(web_surfer, message="Please visit the page 'https://en.wikipedia.org/wiki/Microsoft'")
 
-        user_proxy.initiate_chat(web_surfer, message="Please scroll down.")
+    user_proxy.initiate_chat(web_surfer, message="Please scroll down.")
 
-        user_proxy.initiate_chat(web_surfer, message="Please scroll up.")
+    user_proxy.initiate_chat(web_surfer, message="Please scroll up.")
 
-        user_proxy.initiate_chat(web_surfer, message="When was it founded?")
+    user_proxy.initiate_chat(web_surfer, message="When was it founded?")
 
-        user_proxy.initiate_chat(web_surfer, message="What's this page about?")
+    user_proxy.initiate_chat(web_surfer, message="What's this page about?")
 
 
 @pytest.mark.skipif(

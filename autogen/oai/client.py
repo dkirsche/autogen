@@ -424,7 +424,8 @@ class OpenAIWrapper:
             if isinstance(client, PlaceHolderClient):
                 placeholder_config = client.config
                 if placeholder_config.get("model_client_cls") == model_client_cls.__name__:
-                    self._clients[i] = model_client_cls(placeholder_config, **kwargs)
+                    config = {**placeholder_config, **kwargs}
+                    self._clients[i] = model_client_cls(**config)
                     return
             elif isinstance(client, model_client_cls):
                 existing_client_class = True

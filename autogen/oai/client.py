@@ -17,6 +17,9 @@ from autogen.oai.openai_utils import DEFAULT_AZURE_API_VERSION, get_key, OAI_PRI
 from autogen.token_count_utils import count_token
 from autogen._pydantic import model_dump
 
+from llm_logger import postgres_logger
+import datetime
+
 TOOL_ENABLED = False
 try:
     import openai
@@ -51,6 +54,8 @@ if not logger.handlers:
 
 LEGACY_DEFAULT_CACHE_SEED = 41
 LEGACY_CACHE_DIR = ".cache"
+
+llm_logger = postgres_logger.PostgresLogger(os.getenv("POSTGRES_URL"))
 
 
 class ModelClient(Protocol):
@@ -264,6 +269,7 @@ class OpenAIClient:
             params["stream"] = False
             response = completions.create(**params)
 
+        llm_logger.insert_chat_completion(request=str(params), response=str(response), is_cached=0, cost=response.cost)
         return response
 
     def cost(self, response: Union[ChatCompletion, Completion]) -> float:

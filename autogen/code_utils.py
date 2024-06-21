@@ -375,7 +375,8 @@ def execute_code(
     # SENTINEL is used to indicate that the user did not explicitly set the argument
     if use_docker is SENTINEL:
         use_docker = decide_use_docker(use_docker=None)
-    check_can_use_docker_or_throw(use_docker)
+    if use_docker:
+        check_can_use_docker_or_throw(use_docker)
 
     timeout = timeout or DEFAULT_TIMEOUT
     original_filename = filename

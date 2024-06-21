@@ -313,6 +313,14 @@ def _sanitize_filename_for_docker_tag(filename: str) -> str:
     return sanitized[:128]
 
 
+# truncate stdout so that in case there are many print statements, it doesn't bloat the context
+def limit_output(output, limit=5000):
+    truncated_message = "\n[WARNING: Output was truncated]\n"
+    if len(output) > limit:
+        return output[-limit:] + truncated_message
+    return output
+
+
 def execute_code(
     code: Optional[str] = None,
     timeout: Optional[int] = None,
@@ -420,7 +428,7 @@ def execute_code(
         if original_filename is None:
             os.remove(filepath)
         if result.returncode:
-            logs = result.stderr
+            logs = limit_output(result.stdout) + result.stderr
             if original_filename is None:
                 abs_path = str(pathlib.Path(filepath).absolute())
                 logs = logs.replace(str(abs_path), "").replace(filename, "")
@@ -428,7 +436,7 @@ def execute_code(
                 abs_path = str(pathlib.Path(work_dir).absolute()) + PATH_SEPARATOR
                 logs = logs.replace(str(abs_path), "")
         else:
-            logs = result.stdout
+            logs = limit_output(result.stdout)
         return result.returncode, logs, None
 
     # create a docker client

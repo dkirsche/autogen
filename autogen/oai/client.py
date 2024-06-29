@@ -269,7 +269,9 @@ class OpenAIClient:
             params["stream"] = False
             response = completions.create(**params)
 
-        llm_logger.insert_chat_completion(request=str(params), response=str(response), is_cached=0)
+        llm_logger.insert_chat_completion(
+            request=str(params), response=str(response), is_cached=0, cost=self.cost(response)
+        )
         return response
 
     def cost(self, response: Union[ChatCompletion, Completion]) -> float:

@@ -150,6 +150,7 @@ class OpenAIClient:
         Returns:
             The completion.
         """
+        start_time = datetime.datetime.now(datetime.timezone.utc)
         completions: Completions = self._oai_client.chat.completions if "messages" in params else self._oai_client.completions  # type: ignore [attr-defined]
         # If streaming is enabled and has messages, then iterate over the chunks of the response.
         if params.get("stream", False) and "messages" in params:
@@ -269,8 +270,15 @@ class OpenAIClient:
             params["stream"] = False
             response = completions.create(**params)
 
+        end_time = datetime.datetime.now(datetime.timezone.utc)
         llm_logger.insert_chat_completion(
-            request=str(params), response=str(response), is_cached=0, cost=self.cost(response)
+            request=str(params),
+            response=str(response),
+            is_cached=0,
+            cost=self.cost(response),
+            start_time=start_time,
+            end_time=end_time,
+            model_id=response.model,
         )
         return response
 

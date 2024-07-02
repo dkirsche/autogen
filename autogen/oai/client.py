@@ -412,9 +412,7 @@ class OpenAIWrapper:
             # a config for a custom client is set
             # adding placeholder until the register_model_client is called with the appropriate class
             self._clients.append(PlaceHolderClient(config))
-            logger.info(
-                f"Detected custom model client in config: {model_client_cls_name}, model client can not be used until register_model_client is called."
-            )
+            # logger.info(f"Detected custom model client in config: {model_client_cls_name}, model client can not be used until register_model_client is called.")
         else:
             if api_type is not None and api_type.startswith("azure"):
                 self._configure_azure_openai(config, openai_config)

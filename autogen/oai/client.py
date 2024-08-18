@@ -18,6 +18,7 @@ from autogen.token_count_utils import count_token
 from autogen._pydantic import model_dump
 
 from llm_logger import postgres_logger
+import json
 import datetime
 
 TOOL_ENABLED = False
@@ -272,7 +273,7 @@ class OpenAIClient:
 
         end_time = datetime.datetime.now(datetime.timezone.utc)
         llm_logger.insert_chat_completion(
-            request=str(params),
+            request=json.dumps(params),
             response=str(response),
             is_cached=0,
             cost=self.cost(response),

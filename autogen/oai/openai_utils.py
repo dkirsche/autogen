@@ -45,11 +45,13 @@ OAI_PRICE1K = {
     "gpt-3.5-turbo": (0.0015, 0.002),  # default is still 0613
     "gpt-3.5-turbo-1106": (0.001, 0.002),
     "gpt-35-turbo-1106": (0.001, 0.002),
-    "gpt-4o-2024-05-13": (0.005, 0.0025),
+    "gpt-4o-2024-05-13": (0.005, 0.015),
     "gpt-4-1106-preview": (0.01, 0.03),
     "gpt-4-0125-preview": (0.01, 0.03),
     "gpt-4-turbo-preview": (0.01, 0.03),
     "gpt-4-1106-vision-preview": (0.01, 0.03),  # TODO: support vision pricing of images
+    "gpt-4o-2024-08-06": (0.0025, 0.01),
+    "gpt-4o-mini-2024-07-18": (0.00015, 0.0006),
 }
 
 

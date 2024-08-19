@@ -153,6 +153,7 @@ class OpenAIClient:
         """
         start_time = datetime.datetime.now(datetime.timezone.utc)
         completions: Completions = self._oai_client.chat.completions if "messages" in params else self._oai_client.completions  # type: ignore [attr-defined]
+        agent = params.pop("agent", "openai_unknown")
         # If streaming is enabled and has messages, then iterate over the chunks of the response.
         if params.get("stream", False) and "messages" in params:
             response_contents = [""] * params.get("n", 1)
@@ -273,6 +274,7 @@ class OpenAIClient:
 
         end_time = datetime.datetime.now(datetime.timezone.utc)
         llm_logger.insert_chat_completion(
+            agent=agent,
             request=json.dumps(params),
             response=str(response),
             is_cached=0,
@@ -515,6 +517,7 @@ class OpenAIWrapper:
                 Note: this is a legacy argument. It is only used when the cache argument is not provided.
             - filter_func (Callable | None): A function that takes in the context and the response
                 and returns a boolean to indicate whether the response is valid. E.g.,
+            - agent (str | None): The agent to use for the completion. Default to None.
 
         ```python
         def yes_or_no_filter(context, response):

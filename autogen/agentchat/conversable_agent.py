@@ -823,6 +823,7 @@ class ConversableAgent(Agent):
             context=messages[-1].pop("context", None),
             messages=self._oai_system_message + all_messages,
             cache=self.client_cache,
+            agent=self.name,
         )
 
         extracted_response = client.extract_text_or_completion_object(response)[0]

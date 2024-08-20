@@ -9,7 +9,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from hashlib import md5
 from typing import Callable, Dict, List, Optional, Tuple, Union
-
+from autogen.oai.client import OpenAIWrapper, ModelClient
+from autogen.oai.openai_utils import DEFAULT_MODEL, FAST_MODEL, OPENAI_API_KEY
 from autogen import oai
 
 try:
@@ -18,8 +19,6 @@ except ImportError:
     docker = None
 
 SENTINEL = object()
-DEFAULT_MODEL = "gpt-4"
-FAST_MODEL = "gpt-3.5-turbo"
 # Regular expression for finding a code block
 # ```[ \t]*(\w+)?[ \t]*\r?\n(.*?)[ \t]*\r?\n``` Matches multi-line code blocks.
 #   The [ \t]* matches the potential spaces before language name.
@@ -97,6 +96,27 @@ def infer_lang(code):
         return UNKNOWN
 
 
+def is_code(code: str, lang: str = "python") -> bool:
+    """
+    Placeholder function that simulates checking whether a given text is executable code.
+    In practice, this would send the text to GPT and parse its response.
+    """
+    # Simulated GPT response. Replace with an actual GPT call.
+    gpt_request = f"The following text should only be python or javascript code. If it is then answer 'yes' otherwise answer 'no'.If you are unsure then your answer is 'no'./n {code}? "
+    # Here you would analyze the GPT response and decide if it's code
+    # This is just a placeholder logic
+    config_list = [
+        {
+            "model": FAST_MODEL,
+            "api_key": OPENAI_API_KEY,
+        }
+    ]
+    client = OpenAIWrapper(config_list=config_list)
+    response = client.create(messages=[{"role": "user", "content": gpt_request}], cache_seed=None)
+    answer = response.choices[0].message.content
+    return "yes" in answer.lower()
+
+
 # TODO: In the future move, to better support https://spec.commonmark.org/0.30/#fenced-code-blocks
 #       perhaps by using a full Markdown parser.
 def extract_code(
@@ -120,7 +140,7 @@ def extract_code(
     text = content_str(text)
     if not detect_single_line_code:
         match = re.findall(pattern, text, flags=re.DOTALL)
-        return match if match else [(UNKNOWN, text)]
+        return match if is_code(match[0][1]) else [(UNKNOWN, text)]
 
     # Extract both multi-line and single-line code block, separated by the | operator
     # `([^`]+)`: Matches inline code.
@@ -130,9 +150,9 @@ def extract_code(
     # Extract the individual code blocks and languages from the matched groups
     extracted = []
     for lang, group1, group2 in code_blocks:
-        if group1:
+        if group1 and is_code(group1, lang):  # Check if the multi-line block is code
             extracted.append((lang.strip(), group1.strip()))
-        elif group2:
+        elif group2 and is_code(group2, lang):  # Check if the inline block is code
             extracted.append(("", group2.strip()))
 
     return extracted

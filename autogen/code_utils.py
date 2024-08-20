@@ -102,7 +102,7 @@ def is_code(code: str, lang: str = "python") -> bool:
     In practice, this would send the text to GPT and parse its response.
     """
     # Simulated GPT response. Replace with an actual GPT call.
-    gpt_request = f"The following text should only be python or javascript code. If it is then answer 'yes' otherwise answer 'no'.If you are unsure then your answer is 'no'./n {code}? "
+    gpt_request = f"The following text should only be python or javascript code. If it is then answer 'yes' otherwise answer 'no'.If you are unsure then your answer is 'yes'./n {code}? "
     # Here you would analyze the GPT response and decide if it's code
     # This is just a placeholder logic
     config_list = [
@@ -112,7 +112,7 @@ def is_code(code: str, lang: str = "python") -> bool:
         }
     ]
     client = OpenAIWrapper(config_list=config_list)
-    response = client.create(messages=[{"role": "user", "content": gpt_request}], cache_seed=None)
+    response = client.create(agent="is_code", messages=[{"role": "user", "content": gpt_request}], cache_seed=None)
     answer = response.choices[0].message.content
     return "yes" in answer.lower()
 

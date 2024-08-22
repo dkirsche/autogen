@@ -806,7 +806,7 @@ class ConversableAgent(Agent):
         if messages is None:
             messages = self._oai_messages[sender]
 
-        # unroll tool_responses
+        # Unroll tool_responses
         all_messages = []
         for message in messages:
             tool_responses = message.get("tool_responses", [])
@@ -818,17 +818,34 @@ class ConversableAgent(Agent):
             else:
                 all_messages.append(message)
 
-        # TODO: #1143 handle token limit exceeded error
-        response = client.create(
-            context=messages[-1].pop("context", None),
-            messages=self._oai_system_message + all_messages,
-            cache=self.client_cache,
-            agent=self.name,
-        )
+        # Define a function to create the response and handle errors
+        def try_create_response():
+            try:
+                response = client.create(
+                    context=messages[-1].pop("context", None),
+                    messages=self._oai_system_message + all_messages,
+                    cache=self.client_cache,
+                    agent=self.name,
+                )
+                return response
+            except Exception as e:
+                print(f"Error occurred during client.create(): {e}")
+                return None
 
+        # Try to create the response, retry once if it fails
+        response = try_create_response()
+        if response is None:
+            print("Retrying client.create() one more time...")
+            response = try_create_response()
+
+        # If both attempts fail, return an error message
+        if response is None:
+            return True, "ERROR: Call to LLM failed in generate_oai_reply(). Please try again."
+
+        # Extract the response
         extracted_response = client.extract_text_or_completion_object(response)[0]
 
-        # ensure function and tool calls will be accepted when sent back to the LLM
+        # Ensure function and tool calls will be accepted when sent back to the LLM
         if not isinstance(extracted_response, str):
             extracted_response = model_dump(extracted_response)
         if isinstance(extracted_response, dict):
@@ -838,6 +855,7 @@ class ConversableAgent(Agent):
                 )
             for tool_call in extracted_response.get("tool_calls") or []:
                 tool_call["function"]["name"] = self._normalize_name(tool_call["function"]["name"])
+
         return True, extracted_response
 
     async def a_generate_oai_reply(

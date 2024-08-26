@@ -102,7 +102,7 @@ def is_code(code: str, lang: str = "python") -> bool:
     In practice, this would send the text to GPT and parse its response.
     """
     # Simulated GPT response. Replace with an actual GPT call.
-    gpt_request = f"The following text should only be python or javascript code. If it is then answer 'yes' otherwise answer 'no'.If you are unsure then your answer is 'yes'./n {code}? "
+    gpt_request = f"The following text should contain python or javascript code. If it does then answer 'yes' otherwise answer 'no'.If you are unsure then your answer is 'yes'./n {code}? "
     # Here you would analyze the GPT response and decide if it's code
     # This is just a placeholder logic
     config_list = [

@@ -913,13 +913,23 @@ class ConversableAgent(Agent):
             # found code blocks, execute code and push "last_n_messages" back
             exitcode, logs = self.execute_code_blocks(code_blocks)
             code_execution_config["last_n_messages"] = last_n_messages
-            exitcode2str = "execution succeeded" if exitcode == 0 else "execution failed"
-            return True, f"exitcode: {exitcode} ({exitcode2str})\nCode output: {logs}"
+            if exitcode == 0:
+                exitcode2str = "execution succeeded"
+            else:
+                exitcode2str = "execution failed"
+            expert_feedback = self.code_feedback(code_blocks, exitcode, logs)
+            return (
+                True,
+                f"exitcode: {exitcode} ({exitcode2str})\nCode output: {logs} feedback from expert: {expert_feedback}",
+            )
 
         # no code blocks are found, push last_n_messages back and return.
         code_execution_config["last_n_messages"] = last_n_messages
 
         return False, None
+
+    def code_feedback(code_blocks, exitcode, logs):
+        return None
 
     def generate_function_call_reply(
         self,

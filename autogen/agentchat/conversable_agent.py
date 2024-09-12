@@ -128,7 +128,6 @@ class ConversableAgent(Agent):
             if is_termination_msg is not None
             else (lambda x: content_str(x.get("content")) == "TERMINATE")
         )
-
         if llm_config is False:
             self.llm_config = False
             self.client = None
@@ -1974,15 +1973,6 @@ class ConversableAgent(Agent):
             return func
 
         return _decorator
-
-    def register_model_client(self, model_client_cls: ModelClient, **kwargs):
-        """Register a model client.
-
-        Args:
-            model_client_cls: A custom client class that follows the Client interface
-            **kwargs: The kwargs for the custom client class to be initialized with
-        """
-        self.client.register_model_client(model_client_cls, **kwargs)
 
     def register_hook(self, hookable_method: Callable, hook: Callable):
         """

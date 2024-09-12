@@ -20,6 +20,7 @@ from autogen._pydantic import model_dump
 from llm_logger import postgres_logger
 import json
 import datetime
+import importlib
 
 TOOL_ENABLED = False
 try:
@@ -410,11 +411,13 @@ class OpenAIWrapper:
         """
         openai_config = {**openai_config, **{k: v for k, v in config.items() if k in self.openai_kwargs}}
         api_type = config.get("api_type")
-        model_client_cls_name = config.get("model_client_cls")
+        model_client_cls_name = config.pop("model_client_cls", None)
         if model_client_cls_name is not None:
             # a config for a custom client is set
             # adding placeholder until the register_model_client is called with the appropriate class
-            self._clients.append(PlaceHolderClient(config))
+            client_module = importlib.import_module("autogen.oai." + model_client_cls_name)
+            model_client = getattr(client_module, model_client_cls_name)
+            self._clients.append(model_client(**config))
             # logger.info(f"Detected custom model client in config: {model_client_cls_name}, model client can not be used until register_model_client is called.")
         else:
             if api_type is not None and api_type.startswith("azure"):
@@ -422,34 +425,6 @@ class OpenAIWrapper:
                 self._clients.append(OpenAIClient(AzureOpenAI(**openai_config)))
             else:
                 self._clients.append(OpenAIClient(OpenAI(**openai_config)))
-
-    def register_model_client(self, model_client_cls: ModelClient, **kwargs):
-        """Register a model client.
-
-        Args:
-            model_client_cls: A custom client class that follows the ModelClient interface
-            **kwargs: The kwargs for the custom client class to be initialized with
-        """
-        existing_client_class = False
-        for i, client in enumerate(self._clients):
-            if isinstance(client, PlaceHolderClient):
-                placeholder_config = client.config
-                if placeholder_config.get("model_client_cls") == model_client_cls.__name__:
-                    config = {**placeholder_config, **kwargs}
-                    self._clients[i] = model_client_cls(**config)
-                    return
-            elif isinstance(client, model_client_cls):
-                existing_client_class = True
-
-        if existing_client_class:
-            logger.warn(
-                f"Model client {model_client_cls.__name__} is already registered. Add more entries in the config_list to use multiple model clients."
-            )
-        else:
-            raise ValueError(
-                f'Model client "{model_client_cls.__name__}" is being registered but was not found in the config_list. '
-                f'Please make sure to include an entry in the config_list with "model_client_cls": "{model_client_cls.__name__}"'
-            )
 
     @classmethod
     def instantiate(

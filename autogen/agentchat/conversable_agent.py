@@ -604,9 +604,9 @@ class ConversableAgent(Agent):
         self._process_received_message(message, sender, silent)
         if request_reply is False or request_reply is None and self.reply_at_receive[sender] is False:
             return
-        reply = self.generate_reply(messages=self.chat_messages[sender], sender=sender)
-        if reply is not None:
-            self.send(reply, sender, silent=silent)
+        reply, chat_done = self.generate_reply(messages=self.chat_messages[sender], sender=sender)
+        if reply:  # This checks if reply is not None or an empty string
+            self.send(reply, sender, request_reply=not chat_done, silent=silent)
 
     async def a_receive(
         self,
@@ -1000,6 +1000,13 @@ class ConversableAgent(Agent):
     def _str_for_tool_response(self, tool_response):
         return str(tool_response.get("content", ""))
 
+    def _build_tool_response(self, tool_returns):
+        return {
+            "role": "tool",
+            "tool_responses": tool_returns,
+            "content": "\n\n".join([self._str_for_tool_response(tool_return) for tool_return in tool_returns]),
+        }
+
     def generate_tool_calls_reply(
         self,
         messages: Optional[List[Dict]] = None,
@@ -1040,11 +1047,7 @@ class ConversableAgent(Agent):
                 }
             )
         if tool_returns:
-            return True, {
-                "role": "tool",
-                "tool_responses": tool_returns,
-                "content": "\n\n".join([self._str_for_tool_response(tool_return) for tool_return in tool_returns]),
-            }
+            return True, self._build_tool_response(tool_returns)
         return False, None
 
     async def _a_execute_tool_call(self, tool_call):
@@ -1355,10 +1358,12 @@ class ConversableAgent(Agent):
             if inspect.iscoroutinefunction(reply_func):
                 continue
             if self._match_trigger(reply_func_tuple["trigger"], sender):
-                final, reply = reply_func(self, messages=messages, sender=sender, config=reply_func_tuple["config"])
+                result = reply_func(self, messages=messages, sender=sender, config=reply_func_tuple["config"])
+                final, reply = result[:2]  # Extract the first two values
+                chat_done = result[2] if len(result) > 2 else False  # Default chat_done to False if not provided
                 if final:
-                    return reply
-        return self._default_auto_reply
+                    return reply, chat_done
+        return self._default_auto_reply, False
 
     async def a_generate_reply(
         self,

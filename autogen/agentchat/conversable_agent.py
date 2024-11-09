@@ -911,6 +911,9 @@ class ConversableAgent(Agent):
 
             # found code blocks, execute code and push "last_n_messages" back
             exitcode, logs, image_or_filepath = self.execute_code_blocks(code_blocks)
+            # if execute_code_blocks doesn't find any code blocks after it does additional filtering, then continue
+            if logs == "No runnable code blocks found":
+                continue
             code_execution_config["last_n_messages"] = last_n_messages
             if exitcode == 0:
                 exitcode2str = "execution succeeded"
@@ -1500,47 +1503,84 @@ class ConversableAgent(Agent):
         """
         return execute_code(code, **kwargs)
 
-    def execute_code_blocks(self, code_blocks):
-        """Execute the code blocks and return the result."""
-        logs_all = ""
-        for i, code_block in enumerate(code_blocks):
-            lang, code = code_block
+    def filter_runnable_code_blocks(self, code_blocks):
+        """
+        Filter code blocks to only return those that are runnable.
+        A code block is considered runnable if:
+        - It's a bash/shell/sh script
+        - It's a Python script with a filename
+
+        Args:
+            code_blocks: List of tuples (language, code)
+
+        Returns:
+            List of tuples (language, code) that are runnable
+        """
+        runnable_blocks = []
+
+        for lang, code in code_blocks:
             if not lang:
                 lang = infer_lang(code)
+
+            # Shell scripts are always runnable
+            if lang in ["bash", "shell", "sh"]:
+                runnable_blocks.append((lang, code))
+
+            # Python scripts need a filename
+            elif lang in ["python", "Python"]:
+                if code.startswith("# filename: "):
+                    runnable_blocks.append((lang, code))
+
+        return runnable_blocks
+
+    def execute_code_blocks(self, code_blocks):
+        """
+        Execute the runnable code blocks and return the result.
+
+        Args:
+            code_blocks: List of tuples (language, code)
+
+        Returns:
+            Tuple of (exitcode, logs, image)
+            If no runnable blocks are found, returns (1, error message, None)
+        """
+        runnable_blocks = self.filter_runnable_code_blocks(code_blocks)
+
+        # Handle case where no blocks are runnable
+        if not runnable_blocks:
+            return 1, "No runnable code blocks found", None
+
+        logs_all = ""
+        image = None
+
+        for i, (lang, code) in enumerate(runnable_blocks):
             print(
                 colored(
-                    f"\n>>>>>>>> EXECUTING CODE BLOCK {i} (inferred language is {lang})...",
+                    f"\n>>>>>>>> EXECUTING CODE BLOCK {i} (language: {lang})...",
                     "red",
                 ),
                 flush=True,
             )
+
             if lang in ["bash", "shell", "sh"]:
                 exitcode, logs, image = self.run_code(code, lang=lang, **self._code_execution_config)
-            elif lang in ["python", "Python"]:
-                if code.startswith("# filename: "):
-                    filename = code[11 : code.find("\n")].strip()
-                else:
-                    filename = None
+            else:  # Python with filename
+                filename = code[11 : code.find("\n")].strip()
                 exitcode, logs, image = self.run_code(
                     code,
                     lang="python",
                     filename=filename,
                     **self._code_execution_config,
                 )
-            else:
-                # In case the language is not supported, we return an error message.
-                exitcode, logs, image = (
-                    1,
-                    f"unknown language {lang}",
-                    None,
-                )
-                # raise NotImplementedError
+
             if image is not None:
                 self._code_execution_config["use_docker"] = image
+
             logs_all += "\n" + logs
+
             if exitcode != 0:
                 return exitcode, logs_all, image
-        # image could be either docker image or filepath if not using docker
+
         return exitcode, logs_all, image
 
     @staticmethod

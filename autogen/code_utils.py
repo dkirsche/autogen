@@ -360,7 +360,6 @@ def execute_code(
             If None, a default timeout will be used. The default timeout is 600 seconds. On Windows, the timeout is not enforced when use_docker=False.
         filename (Optional, str): The file name to save the code or where the code is stored when `code` is None.
             If None, a file with a randomly generated name will be created.
-            The randomly generated file will be deleted after execution.
             The file name must be a relative path. Relative paths are relative to the working directory.
         work_dir (Optional, str): The working directory for the code execution.
             If None, a default working directory will be used.
@@ -446,8 +445,6 @@ def execute_code(
                     if original_filename is None:
                         os.remove(filepath)
                     return 1, TIMEOUT_MSG, None
-        if original_filename is None:
-            os.remove(filepath)
         if result.returncode:
             logs = limit_output(result.stdout) + result.stderr
             if original_filename is None:
@@ -458,7 +455,7 @@ def execute_code(
                 logs = logs.replace(str(abs_path), "")
         else:
             logs = limit_output(result.stdout)
-        return result.returncode, logs, None
+        return result.returncode, logs, filepath
 
     # create a docker client
     if use_docker and not docker_running:

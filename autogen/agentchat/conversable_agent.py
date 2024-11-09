@@ -910,7 +910,7 @@ class ConversableAgent(Agent):
                 continue
 
             # found code blocks, execute code and push "last_n_messages" back
-            exitcode, logs = self.execute_code_blocks(code_blocks)
+            exitcode, logs, image_or_filepath = self.execute_code_blocks(code_blocks)
             code_execution_config["last_n_messages"] = last_n_messages
             if exitcode == 0:
                 exitcode2str = "execution succeeded"
@@ -919,7 +919,7 @@ class ConversableAgent(Agent):
             expert_feedback = self.code_feedback(code_blocks, exitcode, logs)
             return (
                 True,
-                f"exitcode: {exitcode} ({exitcode2str})\nCode output: {logs} feedback from expert: {expert_feedback}",
+                f"executed:{image_or_filepath} exitcode: {exitcode} ({exitcode2str})\nCode output: {logs} feedback from expert: {expert_feedback}",
             )
 
         # no code blocks are found, push last_n_messages back and return.
@@ -1539,8 +1539,9 @@ class ConversableAgent(Agent):
                 self._code_execution_config["use_docker"] = image
             logs_all += "\n" + logs
             if exitcode != 0:
-                return exitcode, logs_all
-        return exitcode, logs_all
+                return exitcode, logs_all, image
+        # image could be either docker image or filepath if not using docker
+        return exitcode, logs_all, image
 
     @staticmethod
     def _format_json_str(jstr):

@@ -922,7 +922,8 @@ class ConversableAgent(Agent):
             expert_feedback = self.code_feedback(code_blocks, exitcode, logs)
             return (
                 True,
-                f"executed:{image_or_filepath} exitcode: {exitcode} ({exitcode2str})\nCode output: {logs} feedback from expert: {expert_feedback}",
+                f"executed:{image_or_filepath} exitcode: {exitcode} ({exitcode2str})\nCode output: {logs}"
+                f"{' feedback from expert: ' + expert_feedback if expert_feedback is not None else ''}",
             )
 
         # no code blocks are found, push last_n_messages back and return.

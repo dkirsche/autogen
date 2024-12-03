@@ -189,6 +189,15 @@ class ConversableAgent(Agent):
         # Registered hooks are kept in lists, indexed by hookable method, to be called in their order of registration.
         # New hookable methods should be added to this list as required to support new agent capabilities.
         self.hook_lists = {self.process_last_message: []}  # This is currently the only hookable method.
+        self._perform_self_review = False
+        self._self_review_prompt = (
+            "Its always a good idea to check your work. Pause and review your draft response "
+            "You are smart so I suspect your response is 99% there. "
+            "Ensure that it meets the requirements of the user "
+            "and that of your own specifications based on the system prompt "
+            "Then, restate your response (only modify if needed) as though it is your original one. "
+            "When restating the response, use the draft response as your base and only adjust it where needed. Do not include any metadata referring to revisions made."
+        )
 
     def register_reply(
         self,
@@ -321,6 +330,16 @@ class ConversableAgent(Agent):
                 f"The agent '{agent.name}' is not present in any conversation. No history available for this agent."
             )
         return self._oai_messages[agent][-1]
+
+    @property
+    def perform_self_review(self) -> bool:
+        """Whether self review before sending the response has been enabled."""
+        return self._perform_self_review
+
+    @perform_self_review.setter
+    def perform_self_review(self, value: bool):
+        """Enable/disable self review before sending the response."""
+        self._perform_self_review = value
 
     @property
     def use_docker(self) -> Union[bool, str, None]:
@@ -792,13 +811,93 @@ class ConversableAgent(Agent):
                     flush=True,
                 )
 
+    def _should_review_response(
+        self, response: Union[str, Dict], messages: List[Dict], sender: Optional[Agent]
+    ) -> bool:
+        """Determine if a response should be reviewed based on configured triggers."""
+        if not self._perform_self_review:
+            return False
+
+        # Get response content
+        content = response.get("content") if isinstance(response, dict) else response
+        if content is None:
+            return False
+
+        # Check response length
+        if len(content) <= 500:
+            return False
+
+        # Check for code blocks
+        code_blocks = extract_code(content)
+        if code_blocks and any(lang != UNKNOWN for lang, _ in code_blocks):
+            return True
+
+        return False
+
     def generate_oai_reply(
         self,
         messages: Optional[List[Dict]] = None,
         sender: Optional[Agent] = None,
         config: Optional[OpenAIWrapper] = None,
     ) -> Tuple[bool, Union[str, Dict, None]]:
-        """Generate a reply using autogen.oai."""
+        """Generate a reply using autogen.oai with optional self-review step.
+            Allows for self-review of generated responses before sending them to the recipient.
+        Args:
+            messages: Optional list of message dictionaries
+            sender: Optional sender Agent
+            config: Optional OpenAIWrapper configuration
+
+        Returns:
+            Tuple containing (is_final, response)
+        """
+        # Get initial response
+        initial_success, initial_response = self._original_generate_oai_reply(
+            messages=messages, sender=sender, config=config
+        )
+
+        # Return immediately if initial response failed or was None
+        if not initial_success or initial_response is None:
+            return initial_success, initial_response
+
+        # Check if we should review this response
+        if not self._should_review_response(initial_response, messages or [], sender):
+            return initial_success, initial_response
+
+        print("Performing self review before sending...")
+        # Create review message
+        review_message = {"role": "user", "content": self._self_review_prompt}
+
+        # Create new messages list with the initial response and review request
+        review_messages = []
+        if messages:
+            review_messages.extend(messages)
+
+        # Add the initial response as an assistant message
+        if isinstance(initial_response, str):
+            review_messages.append({"role": "assistant", "content": initial_response})
+        else:
+            review_messages.append({"role": "assistant", **initial_response})
+
+        # Add the review request
+        review_messages.append(review_message)
+
+        # Get the reviewed response
+        final_success, final_response = self._original_generate_oai_reply(
+            messages=review_messages, sender=sender, config=config
+        )
+
+        return final_success, final_response
+
+    def _original_generate_oai_reply(
+        self,
+        messages: Optional[List[Dict]] = None,
+        sender: Optional[Agent] = None,
+        config: Optional[OpenAIWrapper] = None,
+    ) -> Tuple[bool, Union[str, Dict, None]]:
+        """
+        Generate a reply using autogen.oai.
+        This was the original generate_oai_reply() method before the self-review feature was added.
+        """
         client = self.client if config is None else config
         if client is None:
             return False, None

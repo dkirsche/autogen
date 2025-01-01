@@ -338,8 +338,8 @@ def _sanitize_filename_for_docker_tag(filename: str) -> str:
 
 
 # truncate stdout so that in case there are many print statements, it doesn't bloat the context
-def limit_output(output, limit=5000):
-    truncated_message = "\n[WARNING: Output was truncated]\n"
+def limit_output(output, limit=10000):
+    truncated_message = f"\n[WARNING: Output has been truncated to a hard limit of {limit} characters. Modify code to output within this limit.]\n"
     if len(output) > limit:
         return output[-limit:] + truncated_message
     return output

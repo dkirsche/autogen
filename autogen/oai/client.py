@@ -21,6 +21,7 @@ from llm_logger import postgres_logger
 import json
 import datetime
 import importlib
+import re
 
 TOOL_ENABLED = False
 try:
@@ -130,17 +131,43 @@ class OpenAIClient:
             return [choice.text for choice in choices]  # type: ignore [union-attr]
 
         if TOOL_ENABLED:
-            return [  # type: ignore [return-value]
+            extracted_response = [  # type: ignore [return-value]
                 choice.message  # type: ignore [union-attr]
                 if choice.message.function_call is not None or choice.message.tool_calls is not None  # type: ignore [union-attr]
                 else choice.message.content  # type: ignore [union-attr]
                 for choice in choices
             ]
         else:
-            return [  # type: ignore [return-value]
+            extracted_response = [  # type: ignore [return-value]
                 choice.message if choice.message.function_call is not None else choice.message.content  # type: ignore [union-attr]
                 for choice in choices
             ]
+        return (
+            self.clean_function_names(extracted_response[0])
+            if len(extracted_response) == 1
+            else self.clean_function_names(extracted_response)
+        )
+
+    def clean_function_names(self, extracted_response: Union[ChatCompletion, Completion]) -> None:
+        # Ensure function and tool calls will be accepted when sent back to the LLM
+        if not isinstance(extracted_response, str):
+            extracted_response = model_dump(extracted_response)
+        if isinstance(extracted_response, dict):
+            if extracted_response.get("function_call"):
+                extracted_response["function_call"]["name"] = self._normalize_name(
+                    extracted_response["function_call"]["name"]
+                )
+            for tool_call in extracted_response.get("tool_calls") or []:
+                tool_call["function"]["name"] = self._normalize_name(tool_call["function"]["name"])
+        return extracted_response
+
+    def _normalize_name(self, name):
+        """
+        LLMs sometimes ask functions while ignoring their own format requirements, this function should be used to replace invalid characters with "_".
+
+        Prefer _assert_valid_name for validating user configuration or input
+        """
+        return re.sub(r"[^a-zA-Z0-9_-]", "_", name)[:64]
 
     def create(self, params: Dict[str, Any]) -> ChatCompletion:
         """Create a completion for a given config using openai's client.
@@ -155,6 +182,12 @@ class OpenAIClient:
         start_time = datetime.datetime.now(datetime.timezone.utc)
         completions: Completions = self._oai_client.chat.completions if "messages" in params else self._oai_client.completions  # type: ignore [attr-defined]
         agent = params.pop("agent", "openai_unknown")
+        if params.get("model") == "o1-mini-2024-09-12":
+            params.pop("tools", None)
+            params.pop("temperature", None)
+            for message in params["messages"]:
+                if message["role"] == "system":
+                    message["role"] = "user"
         # If streaming is enabled and has messages, then iterate over the chunks of the response.
         if params.get("stream", False) and "messages" in params:
             response_contents = [""] * params.get("n", 1)
@@ -589,7 +622,6 @@ class OpenAIWrapper:
                     # Cache the response
                     with cache_client as cache:
                         cache.set(key, response)
-
                 response.message_retrieval_function = client.message_retrieval
                 # check the filter
                 pass_filter = filter_func is None or filter_func(context=context, response=response)
@@ -811,7 +843,5 @@ class OpenAIWrapper:
         Returns:
             A list of text, or a list of ChatCompletion objects if function_call/tool_calls are present.
         """
-        return response.message_retrieval_function(response)
-
-
-# TODO: logging
+        extracted_response = response.message_retrieval_function(response)
+        return extracted_response

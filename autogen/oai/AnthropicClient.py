@@ -36,12 +36,12 @@ from openai.types.chat.chat_completion import ChatCompletionMessage, Choice
 from typing_extensions import Annotated
 from llm_logger import postgres_logger
 import datetime
+from autogen._pydantic import model_dump
 
-TOOL_ENABLED = anthropic_version >= "0.23.1"
-if TOOL_ENABLED:
-    from anthropic.types.tool_use_block_param import (
-        ToolUseBlockParam,
-    )
+
+from anthropic.types.tool_use_block_param import (
+    ToolUseBlockParam,
+)
 
 llm_logger = postgres_logger.PostgresLogger(os.getenv("POSTGRES_URL"))
 ANTHROPIC_PRICING_1k = {
@@ -143,7 +143,6 @@ class AnthropicClient:
                 processed_messages.append(message)
             else:
                 processed_messages.append(message)
-
         # Check for interleaving roles and insert a message for missing roles
         i = 0
 
@@ -224,32 +223,43 @@ class AnthropicClient:
         """Retrieve the messages from the response."""
         messages = response.content
         if len(messages) == 0:
-            return [None]
-        res = []
-        if TOOL_ENABLED:
-            for choice in messages:
-                if choice.type == "tool_use":
-                    res.insert(0, self.response_to_openai_message(choice))
-                    self._last_tooluse_status["tool_use"] = choice.model_dump()
-                else:
-                    res.append(choice.text)
-                    self._last_tooluse_status["think"] = choice.text
+            return None
 
-            return res
+        # Find tool_use and text choices
+        tool_use_choice = None
+        text_choice = None
 
+        for choice in messages:
+            if choice.type == "tool_use":
+                tool_use_choice = choice
+                self._last_tooluse_status["tool_use"] = choice.model_dump()
+            elif choice.type == "text":
+                text_choice = choice
+                self._last_tooluse_status["think"] = choice.text
+
+        # If there's a tool_use, pass both choices to response_to_openai_message
+        if tool_use_choice:
+            choice_selected = model_dump(self.response_to_openai_message(tool_use_choice, text_choice))
         else:
-            return [  # type: ignore [return-value]
-                choice.text if choice.message.function_call is not None else choice.message.content  # type: ignore [union-attr]
-                for choice in messages
-            ]
+            # If no tool_use, return the text from the first choice
+            choice_selected = messages[0].text
 
-    def response_to_openai_message(self, response) -> ChatCompletionMessage:
+        return choice_selected
+
+    def response_to_openai_message(self, response, thought) -> ChatCompletionMessage:
         """Convert the client response to OpenAI ChatCompletion Message"""
         dict_response = response.model_dump()
+
+        # Create a Function object
+        function = {"name": dict_response["name"], "arguments": json.dumps(dict_response["input"])}
+
+        # Create a ChatCompletionMessageToolCall object using the existing ID
+        tool_call = ChatCompletionMessageToolCall(
+            id=dict_response["id"], function=function, type="function"  # Use the ID from ToolUseBlock
+        )
+
         return ChatCompletionMessage(
-            content=None,
-            role="assistant",
-            function_call={"name": dict_response["name"], "arguments": json.dumps(dict_response["input"])},
+            content=thought.text, role="assistant", function_call=None, tool_calls=[tool_call], refusal=None
         )
 
     def restore_last_tooluse_status(self) -> Dict:
@@ -262,21 +272,30 @@ class AnthropicClient:
 
     # store all tools that have been called for later retrieval so the call can be paired with the response
     def process_tool_calls(self, message):
-        # Iterate over the tool calls in the message
         for tool_call in message.get("tool_calls", []):
-            tool_call_id = tool_call["id"]  # Extract the ID of the tool call
+            tool_call_id = tool_call["id"]
             tool_call_data = {
                 "content": message["content"],
                 "function_name": tool_call["function"]["name"],
                 "function_arguments": tool_call["function"]["arguments"],
                 "type": tool_call["type"],
             }
-            # Store the tool call data in the dictionary using the ID as the key
-            self._tool_call_dict[tool_call_id] = tool_call_data
+            # Initialize a list for this ID if it doesn't exist
+            if tool_call_id not in self._tool_call_dict:
+                self._tool_call_dict[tool_call_id] = []
+            # Append the new tool call data to the list
+            self._tool_call_dict[tool_call_id].append(tool_call_data)
 
     def return_tool_call_result(self, message):
         tool_call_id = message.get("tool_call_id", None)
-        tool_call_info = self._tool_call_dict.get(tool_call_id, None)
+        tool_call_info_list = self._tool_call_dict.get(tool_call_id, [])
+
+        # Get the most recent tool call info from the list
+        if not tool_call_info_list:
+            raise ValueError(f"No tool call info found for ID: {tool_call_id}")
+
+        tool_call_info = tool_call_info_list[-1]  # Get the most recent tool call
+
         assistant_msg = {
             "role": "assistant",
             "content": [
@@ -289,6 +308,7 @@ class AnthropicClient:
                 },
             ],
         }
+
         user_msg = {
             "role": "user",
             "content": [

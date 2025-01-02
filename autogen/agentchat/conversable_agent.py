@@ -362,15 +362,6 @@ class ConversableAgent(Agent):
             return dict(message)
 
     @staticmethod
-    def _normalize_name(name):
-        """
-        LLMs sometimes ask functions while ignoring their own format requirements, this function should be used to replace invalid characters with "_".
-
-        Prefer _assert_valid_name for validating user configuration or input
-        """
-        return re.sub(r"[^a-zA-Z0-9_-]", "_", name)[:64]
-
-    @staticmethod
     def _assert_valid_name(name):
         """
         Ensure that configured names are valid, raises ValueError if not.
@@ -941,18 +932,7 @@ class ConversableAgent(Agent):
             return True, "ERROR: Call to LLM failed in generate_oai_reply(). Please try again."
 
         # Extract the response
-        extracted_response = client.extract_text_or_completion_object(response)[0]
-
-        # Ensure function and tool calls will be accepted when sent back to the LLM
-        if not isinstance(extracted_response, str):
-            extracted_response = model_dump(extracted_response)
-        if isinstance(extracted_response, dict):
-            if extracted_response.get("function_call"):
-                extracted_response["function_call"]["name"] = self._normalize_name(
-                    extracted_response["function_call"]["name"]
-                )
-            for tool_call in extracted_response.get("tool_calls") or []:
-                tool_call["function"]["name"] = self._normalize_name(tool_call["function"]["name"])
+        extracted_response = client.extract_text_or_completion_object(response)
 
         return True, extracted_response
 

@@ -46,6 +46,7 @@ from anthropic.types.tool_use_block_param import (
 llm_logger = postgres_logger.PostgresLogger(os.getenv("POSTGRES_URL"))
 ANTHROPIC_PRICING_1k = {
     "claude-3-5-sonnet-20240620": (0.003, 0.015),
+    "claude-3-5-sonnet-latest": (0.003, 0.015),
     "claude-3-opus-20240229": (0.015, 0.075),
     "claude-2.0": (0.008, 0.024),
     "claude-2.1": (0.008, 0.024),

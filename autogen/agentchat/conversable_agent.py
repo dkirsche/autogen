@@ -174,7 +174,6 @@ class ConversableAgent(Agent):
         self.reply_at_receive = defaultdict(bool)
         self.register_reply([Agent, None], ConversableAgent.generate_oai_reply)
         self.register_reply([Agent, None], ConversableAgent.a_generate_oai_reply, ignore_async_in_sync_chat=True)
-        self.register_reply([Agent, None], ConversableAgent.generate_code_execution_reply)
         self.register_reply([Agent, None], ConversableAgent.generate_tool_calls_reply)
         self.register_reply([Agent, None], ConversableAgent.a_generate_tool_calls_reply, ignore_async_in_sync_chat=True)
         self.register_reply([Agent, None], ConversableAgent.generate_function_call_reply)
@@ -929,7 +928,7 @@ class ConversableAgent(Agent):
 
         # If both attempts fail, return an error message
         if response is None:
-            return True, "ERROR: Call to LLM failed in generate_oai_reply(). Please try again."
+            return False, f"ERROR: Call to LLM by {self.name} failed in generate_oai_reply(). Please try again."
 
         # Extract the response
         extracted_response = client.extract_text_or_completion_object(response)
@@ -1521,6 +1520,7 @@ class ConversableAgent(Agent):
         Raises:
             - ValueError: If the trigger type is unsupported.
         """
+
         if trigger is None:
             return sender is None
         elif isinstance(trigger, str):

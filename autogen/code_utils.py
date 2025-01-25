@@ -140,12 +140,10 @@ def extract_code(
     text = content_str(text)
     if not detect_single_line_code:
         match = re.findall(pattern, text, flags=re.DOTALL)
-        return (
-            [m for m in match if m and is_code(m[1])]
-            if match and any(is_code(m[1]) for m in match)
-            else [(UNKNOWN, text)]
-        )
-
+        if not match:
+            return [(UNKNOWN, text)]
+        code_blocks = [m for m in match if m and is_code(m[1])]  # Single call to is_code
+        return code_blocks if code_blocks else [(UNKNOWN, text)]
     # Extract both multi-line and single-line code block, separated by the | operator
     # `([^`]+)`: Matches inline code.
     code_pattern = re.compile(CODE_BLOCK_PATTERN + r"|`([^`]+)`")

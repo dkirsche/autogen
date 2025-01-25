@@ -199,9 +199,23 @@ class AnthropicClient:
             del anthropic_params["top_p"]
         if anthropic_params["stop_sequences"] is None:
             del anthropic_params["stop_sequences"]
-
-        response = self._client.messages.create(**anthropic_params)
-
+        try:
+            response = self._client.messages.create(**anthropic_params)
+        except Exception as e:
+            # Handle specific exceptions if needed
+            end_time = datetime.datetime.now(datetime.timezone.utc)
+            llm_logger.insert_chat_completion(
+                agent=agent,
+                request=json.dumps(params),
+                response=str(str(e)),
+                is_cached=0,
+                cost=0,
+                start_time=start_time,
+                end_time=end_time,
+                model_id=params.get("model"),
+            )
+            # You may want to raise the exception or handle it differently
+            raise
         # Calculate and save the cost onto the response
         prompt_tokens = response.usage.input_tokens
         completion_tokens = response.usage.output_tokens
@@ -240,6 +254,7 @@ class AnthropicClient:
 
         # If there's a tool_use, pass both choices to response_to_openai_message
         if tool_use_choice:
+            # Even if text_choice is None, we'll handle it in response_to_openai_message
             choice_selected = model_dump(self.response_to_openai_message(tool_use_choice, text_choice))
         else:
             # If no tool_use, return the text from the first choice
@@ -259,8 +274,11 @@ class AnthropicClient:
             id=dict_response["id"], function=function, type="function"  # Use the ID from ToolUseBlock
         )
 
+        # Use empty string as default content if thought is None
+        content = thought.text if thought is not None else ""
+
         return ChatCompletionMessage(
-            content=thought.text, role="assistant", function_call=None, tool_calls=[tool_call], refusal=None
+            content=content, role="assistant", function_call=None, tool_calls=[tool_call], refusal=None
         )
 
     def restore_last_tooluse_status(self) -> Dict:
@@ -297,10 +315,13 @@ class AnthropicClient:
 
         tool_call_info = tool_call_info_list[-1]  # Get the most recent tool call
 
+        # Handle empty content by setting it to "none"
+        content = tool_call_info.get("content") or "none"
+
         assistant_msg = {
             "role": "assistant",
             "content": [
-                {"type": "text", "text": tool_call_info["content"]},
+                {"type": "text", "text": content},
                 {
                     "id": tool_call_id,
                     "input": json.loads(tool_call_info["function_arguments"]),

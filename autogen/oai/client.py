@@ -302,9 +302,25 @@ class OpenAIClient:
                 response.choices.append(choice)
         else:
             # If streaming is not enabled, send a regular chat completion request
-            params = params.copy()
-            params["stream"] = False
-            response = completions.create(**params)
+            try:
+                params = params.copy()
+                params["stream"] = False
+                response = completions.create(**params)
+            except Exception as e:
+                # Handle specific exceptions if needed
+                end_time = datetime.datetime.now(datetime.timezone.utc)
+                llm_logger.insert_chat_completion(
+                    agent=agent,
+                    request=json.dumps(params),
+                    response=str(str(e)),
+                    is_cached=0,
+                    cost=0,
+                    start_time=start_time,
+                    end_time=end_time,
+                    model_id=params.get("model"),
+                )
+                # You may want to raise the exception or handle it differently
+                raise
 
         end_time = datetime.datetime.now(datetime.timezone.utc)
         llm_logger.insert_chat_completion(

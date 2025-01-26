@@ -987,25 +987,23 @@ class ConversableAgent(Agent):
             if len(code_blocks) == 1 and code_blocks[0][0] == UNKNOWN:
                 continue
 
-            # found code blocks, execute code and push "last_n_messages" back
-            exitcode, logs, image_or_filepath = self.execute_code_blocks(code_blocks)
-            # if execute_code_blocks doesn't find any code blocks after it does additional filtering, then continue
-            if logs == "No runnable code blocks found":
+            results = self.execute_code_blocks(code_blocks)
+            if not results:
                 continue
-            code_execution_config["last_n_messages"] = last_n_messages
-            if exitcode == 0:
-                exitcode2str = "execution succeeded"
-            else:
-                exitcode2str = "execution failed"
-            expert_feedback = self.code_feedback(code_blocks, exitcode, logs)
-            return (
-                True,
-                f"Executed:{image_or_filepath} Exitcode: {exitcode} ({exitcode2str})\nCode output: {logs}"
-                f"\n{'Feedback from experts: ' + expert_feedback if expert_feedback else ''}",
-            )
 
-        # no code blocks are found, push last_n_messages back and return.
-        code_execution_config["last_n_messages"] = last_n_messages
+            code_execution_config["last_n_messages"] = last_n_messages
+            outputs = []
+            for exitcode, logs, image, notes in results:
+                exitcode2str = "execution succeeded" if exitcode == 0 else "execution failed"
+                expert_feedback = self.code_feedback(code_blocks, exitcode, logs)
+
+                outputs.append(
+                    f"Code block {i} results\n"
+                    f"{notes + chr(10) if notes else ''}"
+                    f"Executed:{image} Exitcode: {exitcode} ({exitcode2str})\nCode output: {logs}"
+                    f"\n{'Feedback from experts: ' + expert_feedback if expert_feedback else ''}"
+                )
+            return True, "\n".join(outputs)
 
         return False, None
 
@@ -1583,35 +1581,28 @@ class ConversableAgent(Agent):
         """
         return execute_code(code, **kwargs)
 
-    def filter_runnable_code_blocks(self, code_blocks):
+    def _runnable_code_block(self, lang, code, filename=None):
         """
-        Filter code blocks to only return those that are runnable.
-        A code block is considered runnable if:
-        - It's a bash/shell/sh script
-        - It's a Python script with a filename
+        Determine if a code block is runnable.
 
         Args:
-            code_blocks: List of tuples (language, code)
+            lang: Language of the code block
+            code: Content of the code block
+            filename: Optional filename for the code
 
         Returns:
-            List of tuples (language, code) that are runnable
+            Tuple of bool: True if runnable, False otherwise. str:message if not runnable.
         """
-        runnable_blocks = []
+        if not lang:
+            lang = infer_lang(code)
 
-        for lang, code in code_blocks:
-            if not lang:
-                lang = infer_lang(code)
+        if lang.lower() not in ["bash", "shell", "sh", "python"]:
+            return False, f"{lang} is an unsupported language"
 
-            # Shell scripts are always runnable
-            if lang in ["bash", "shell", "sh"]:
-                runnable_blocks.append((lang, code))
+        if lang.lower() == "python" and filename is None:
+            return False, "Python code must have a filename"
 
-            # Python scripts need a filename
-            elif lang in ["python", "Python"]:
-                if code.startswith("# filename: "):
-                    runnable_blocks.append((lang, code))
-
-        return runnable_blocks
+        return True, ""
 
     def execute_code_blocks(self, code_blocks):
         """
@@ -1621,47 +1612,50 @@ class ConversableAgent(Agent):
             code_blocks: List of tuples (language, code)
 
         Returns:
-            Tuple of (exitcode, logs, image)
-            If no runnable blocks are found, returns (1, error message, None)
+            List of Tuples of (exitcode, logs, image, notes)
         """
-        runnable_blocks = self.filter_runnable_code_blocks(code_blocks)
+        results = []
+        for i, (lang, code) in enumerate(code_blocks):
+            # find the file name
+            start = code.find(
+                "# filename: "
+            )  # find the location where "# filename: " is in the code. use this as the start location
+            if start != -1:
+                text = code[
+                    start + len("# filename: ") : code.find("\n", start)
+                ]  # extract the text after "# filename: " until the next newline
+                filename = text.split()[0].strip()  # Take first word only
+            else:
+                filename = None  # or handle missing filename case
 
-        # Handle case where no blocks are runnable
-        if not runnable_blocks:
-            return 1, "No runnable code blocks found", None
+            runable, reason = self._runnable_code_block(lang=lang, code=code, filename=filename)
+            if runable:
+                print(
+                    colored(
+                        f"\n>>>>>>>> EXECUTING CODE BLOCK {i} (language: {lang})...",
+                        "red",
+                    ),
+                    flush=True,
+                )
 
-        logs_all = ""
-        image = None
-
-        for i, (lang, code) in enumerate(runnable_blocks):
-            print(
-                colored(
-                    f"\n>>>>>>>> EXECUTING CODE BLOCK {i} (language: {lang})...",
-                    "red",
-                ),
-                flush=True,
-            )
-
-            if lang in ["bash", "shell", "sh"]:
-                exitcode, logs, image = self.run_code(code, lang=lang, **self._code_execution_config)
-            else:  # Python with filename
-                filename = code[11 : code.find("\n")].strip()
-                exitcode, logs, image = self.run_code(
+                exitcode, logs, image, temp_file_created = self.run_code(
                     code,
-                    lang="python",
+                    lang=lang,
                     filename=filename,
                     **self._code_execution_config,
                 )
+                results.append((exitcode, logs, image, temp_file_created))
+            else:
+                exitcode = 0
+                print(colored(f"\n>>>>>>>> SKIPPING CODE BLOCK {i}", "red"), flush=True)
+                results.append((exitcode, "", None, f"Did not run code because {reason}"))
 
-            if image is not None:
-                self._code_execution_config["use_docker"] = image
+            if (
+                exitcode != 0
+            ):  # exit immediately b/c if next codeblock has a dependency on previous codeblock, it will cause unexpected behavior
+                return results
 
-            logs_all += "\n" + logs
-
-            if exitcode != 0:
-                return exitcode, logs_all, image
-
-        return exitcode, logs_all, image
+        return results
 
     @staticmethod
     def _format_json_str(jstr):

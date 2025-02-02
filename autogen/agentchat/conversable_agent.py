@@ -922,11 +922,7 @@ class ConversableAgent(Agent):
 
         # Try to create the response, retry once if it fails
         response = try_create_response()
-        if response is None:
-            print("Retrying client.create() one more time...")
-            response = try_create_response()
-
-        # If both attempts fail, return an error message
+        # If attempt fails, return an error message
         if response is None:
             return False, f"ERROR: Call to LLM by {self.name} failed in generate_oai_reply(). Please try again."
 

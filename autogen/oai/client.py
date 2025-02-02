@@ -180,7 +180,7 @@ class OpenAIClient:
             The completion.
         """
         start_time = datetime.datetime.now(datetime.timezone.utc)
-        completions: Completions = self._oai_client.chat.completions if "messages" in params else self._oai_client.completions  # type: ignore [attr-defined]
+        completions: Completions = self._oai_client.chat.completions  # type: ignore [attr-defined]
         agent = params.pop("agent", "openai_unknown")
         if params.get("model") == "o1-mini-2024-09-12":
             params.pop("tools", None)

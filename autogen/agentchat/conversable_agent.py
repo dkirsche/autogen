@@ -2191,3 +2191,126 @@ def register_function(
     """
     f = caller.register_for_llm(name=name, description=description)(f)
     executor.register_for_execution(name=name)(f)
+
+    # ============================================================================
+    # NEW NON-RECURSIVE CONVERSATION METHODS (v2)
+    # ============================================================================
+
+    def initiate_chat_v2(
+        self,
+        recipient: "ConversableAgent",
+        clear_history: Optional[bool] = True,
+        silent: Optional[bool] = False,
+        cache: Optional[Cache] = None,
+        **context,
+    ) -> None:
+        """Initiate a chat with the recipient agent using non-recursive conversation flow.
+
+        This method provides memory-efficient conversations by using an event loop
+        instead of recursive send() -> receive() -> send() calls. It maintains
+        identical functionality to initiate_chat() while preventing memory growth
+        in long conversations.
+
+        Args:
+            recipient: the recipient agent.
+            clear_history (bool): whether to clear the chat history with the agent.
+            silent (bool or None): (Experimental) whether to print the messages for this conversation.
+            cache (Cache or None): the cache client to be used for this conversation.
+            **context: any context information.
+                "message" needs to be provided if the `generate_init_message` method is not overridden.
+                Otherwise, input() will be called to get the initial message.
+
+        Raises:
+            RuntimeError: if any async reply functions are registered and not ignored in sync chat.
+        """
+        # Import here to avoid circular imports
+        from .conversation_manager import ConversationManager
+
+        # Same preparation as original initiate_chat
+        for agent in [self, recipient]:
+            agent._raise_exception_on_async_reply_functions()
+            agent.previous_cache = agent.client_cache
+            agent.client_cache = cache
+        self._prepare_chat(recipient, clear_history)
+
+        # Generate initial message
+        initial_message = self.generate_init_message(**context)
+
+        # Use ConversationManager for non-recursive conversation
+        conversation_manager = ConversationManager(self, recipient)
+        conversation_manager.run_conversation(initial_message, silent=silent)
+
+        # Same cleanup as original initiate_chat
+        for agent in [self, recipient]:
+            agent.client_cache = agent.previous_cache
+            agent.previous_cache = None
+
+    def _send_v2(
+        self,
+        message: Union[Dict, str],
+        recipient: Agent,
+        request_reply: Optional[bool] = None,
+        silent: Optional[bool] = False,
+    ) -> None:
+        """Send a message to another agent (non-recursive version).
+
+        This method sends a message and processes it on the recipient side
+        without triggering the reply chain, allowing the ConversationManager
+        to control the conversation flow.
+
+        Args:
+            message (dict or str): message to be sent.
+            recipient: recipient of an Agent instance.
+            request_reply (bool or None): whether to request a reply from the recipient.
+            silent (bool or None): (Experimental) whether to print the message sent.
+
+        Raises:
+            ValueError: if the message can't be converted into a valid ChatCompletion message.
+        """
+        # Same message validation as original send()
+        valid = self._append_oai_message(message, "assistant", recipient)
+        if not valid:
+            raise ValueError(
+                "Message can't be converted into a valid ChatCompletion message. Either content or function_call must be provided."
+            )
+
+        # Process the message on recipient side without triggering reply chain
+        recipient._process_received_message(message, self, silent)
+
+    def _process_and_reply_v2(
+        self,
+        message: Union[Dict, str],
+        sender: Agent,
+        request_reply: Optional[bool] = None,
+        silent: Optional[bool] = False,
+    ) -> Tuple[bool, Optional[Union[str, Dict]]]:
+        """Process received message and generate reply if needed (non-recursive version).
+
+        This method combines message processing and reply generation while
+        returning control to the ConversationManager instead of recursively
+        calling send().
+
+        Args:
+            message (dict or str): message received.
+            sender: sender of an Agent instance.
+            request_reply (bool or None): whether a reply is requested from the sender.
+            silent (bool or None): (Experimental) whether to print the message received.
+
+        Returns:
+            Tuple of (should_continue, reply):
+                should_continue (bool): whether the conversation should continue
+                reply (str or dict or None): the generated reply, None if no reply
+
+        Raises:
+            ValueError: if the message can't be converted into a valid ChatCompletion message.
+        """
+        # Check if reply is needed (same logic as original receive())
+        if request_reply is False or request_reply is None and self.reply_at_receive[sender] is False:
+            return False, None
+
+        # Generate reply using existing generate_reply method
+        reply, chat_done = self.generate_reply(messages=self.chat_messages[sender], sender=sender)
+
+        # Return whether to continue and the reply
+        should_continue = bool(reply) and not chat_done
+        return should_continue, reply if reply else None

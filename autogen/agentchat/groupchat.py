@@ -543,3 +543,113 @@ class GroupChatManager(ConversableAgent):
         reply = " ".join(words[:clear_word_index] + words[clear_word_index + skip_words_number :])
 
         return reply
+
+    # ============================================================================
+    # NEW NON-RECURSIVE GROUP CONVERSATION METHODS (v2)
+    # ============================================================================
+
+    def initiate_group_chat_v2(
+        self,
+        initiator: Agent,
+        clear_history: Optional[bool] = True,
+        silent: Optional[bool] = False,
+        cache: Optional[object] = None,
+        **context,
+    ) -> None:
+        """Initiate a group chat using non-recursive conversation flow.
+
+        This method provides memory-efficient group conversations by using an event loop
+        instead of recursive send() -> receive() -> send() calls. It maintains
+        identical functionality to the original group chat while preventing memory growth
+        in long conversations.
+
+        Args:
+            initiator: The agent that starts the group conversation.
+            clear_history (bool): Whether to clear the chat history with agents.
+            silent (bool or None): (Experimental) whether to print the messages for this conversation.
+            cache (Cache or None): The cache client to be used for this conversation.
+            **context: Any context information.
+                "message" needs to be provided if the `generate_init_message` method is not overridden.
+                Otherwise, input() will be called to get the initial message.
+
+        Raises:
+            RuntimeError: if any async reply functions are registered and not ignored in sync chat.
+        """
+        # Import here to avoid circular imports
+        from .group_conversation_manager import GroupConversationManager
+
+        # Same preparation as original initiate_chat
+        for agent in [self] + self._groupchat.agents:
+            agent._raise_exception_on_async_reply_functions()
+            agent.previous_cache = agent.client_cache
+            agent.client_cache = cache
+
+        # Clear history if requested
+        if clear_history:
+            self.clear_history()
+            for agent in self._groupchat.agents:
+                agent.clear_history()
+            self._groupchat.reset()
+
+        # Generate initial message
+        initial_message = initiator.generate_init_message(**context)
+
+        # Use GroupConversationManager for non-recursive group conversation
+        group_manager = GroupConversationManager(self._groupchat, self)
+        group_manager.run_group_conversation(initial_message, initiator, silent=silent)
+
+        # Same cleanup as original initiate_chat
+        for agent in [self] + self._groupchat.agents:
+            agent.client_cache = agent.previous_cache
+            agent.previous_cache = None
+
+    async def a_initiate_group_chat_v2(
+        self,
+        initiator: Agent,
+        clear_history: Optional[bool] = True,
+        silent: Optional[bool] = False,
+        cache: Optional[object] = None,
+        **context,
+    ) -> None:
+        """(async) Initiate a group chat using non-recursive conversation flow.
+
+        This method provides memory-efficient async group conversations by using an event loop
+        instead of recursive a_send() -> a_receive() -> a_send() calls. It maintains
+        identical functionality to the original async group chat while preventing memory growth
+        in long conversations.
+
+        Args:
+            initiator: The agent that starts the group conversation.
+            clear_history (bool): Whether to clear the chat history with agents.
+            silent (bool or None): (Experimental) whether to print the messages for this conversation.
+            cache (Cache or None): The cache client to be used for this conversation.
+            **context: Any context information.
+                "message" needs to be provided if the `generate_init_message` method is not overridden.
+                Otherwise, input() will be called to get the initial message.
+        """
+        # Import here to avoid circular imports
+        from .async_conversation_manager import AsyncGroupConversationManager
+
+        # Same preparation as original a_initiate_chat
+        for agent in [self] + self._groupchat.agents:
+            agent.previous_cache = agent.client_cache
+            agent.client_cache = cache
+
+        # Clear history if requested
+        if clear_history:
+            self.clear_history()
+            for agent in self._groupchat.agents:
+                agent.clear_history()
+            self._groupchat.reset()
+
+        # Generate initial message (async)
+        initial_message = await initiator.a_generate_init_message(**context)
+
+        # Use AsyncGroupConversationManager for non-recursive async group conversation
+        async_group_manager = AsyncGroupConversationManager(self._groupchat, self)
+        await async_group_manager.run_group_conversation(initial_message, initiator, silent=silent)
+
+        # Same cleanup as original a_initiate_chat
+        for agent in [self] + self._groupchat.agents:
+            agent.client_cache = agent.previous_cache
+            agent.previous_cache = None

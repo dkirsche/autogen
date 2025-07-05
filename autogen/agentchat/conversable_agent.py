@@ -5,6 +5,7 @@ import inspect
 import json
 import logging
 import re
+import uuid
 import warnings
 from collections import defaultdict
 from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Type, TypeVar, Union
@@ -125,6 +126,10 @@ class ConversableAgent(LLMAgent):
             chat_messages (dict or None): the previous chat messages that this agent had in the past with other agents.
                 Can be used to give the agent a memory by providing the chat history. This will allow the agent to
                 resume previous had conversations. Defaults to an empty chat history.
+
+        Note:
+            Database-backed pause functionality is automatically enabled if the POSTGRES_URL
+            environment variable is set with a PostgreSQL connection string.
         """
         # we change code_execution_config below and we have to make sure we don't change the input
         # in case of UserProxyAgent, without this we could even change the default value {}
@@ -133,6 +138,8 @@ class ConversableAgent(LLMAgent):
         )
 
         self._name = name
+        self._agent_id = str(uuid.uuid4())  # Generate unique agent ID
+
         # a dictionary of conversations, default value is list
         if chat_messages is None:
             self._oai_messages = defaultdict(list)
@@ -179,6 +186,21 @@ class ConversableAgent(LLMAgent):
         self._reply_func_list = []
         self._human_input = []
         self.reply_at_receive = defaultdict(bool)
+
+        # Pause functionality - database-backed or in-memory fallback
+        self._is_paused = False
+        self._pause_message = "Conversation is paused. Use resume() to continue."
+
+        # Initialize database manager from environment variable
+        try:
+            from .pause_db_manager import initialize_pause_db_manager
+            self._pause_db_manager = initialize_pause_db_manager()
+            if not self._pause_db_manager.enabled:
+                self._pause_db_manager = None
+        except Exception as e:
+            logger.warning(f"Failed to initialize pause database manager: {e}")
+            self._pause_db_manager = None
+
         self.register_reply([Agent, None], ConversableAgent.generate_oai_reply)
         self.register_reply([Agent, None], ConversableAgent.a_generate_oai_reply, ignore_async_in_sync_chat=True)
 
@@ -266,6 +288,11 @@ class ConversableAgent(LLMAgent):
     def name(self) -> str:
         """Get the name of the agent."""
         return self._name
+
+    @property
+    def agent_id(self) -> str:
+        """Get the unique agent ID."""
+        return self._agent_id
 
     @property
     def description(self) -> str:
@@ -487,6 +514,42 @@ class ConversableAgent(LLMAgent):
     def chat_messages_for_summary(self, agent: Agent) -> List[Dict]:
         """A list of messages as a conversation to summarize."""
         return self._oai_messages[agent]
+
+    @property
+    def is_paused(self) -> bool:
+        """Check if the agent is currently paused."""
+        if self._pause_db_manager:
+            # Check database for pause state
+            return self._pause_db_manager.is_agent_paused(self._agent_id)
+        else:
+            # Fall back to in-memory state
+            return self._is_paused
+
+    def pause(self, message: Optional[str] = None) -> None:
+        """Pause the agent's conversation.
+
+        Args:
+            message (str, optional): Custom message to display when paused.
+                Defaults to "Conversation is paused. Use resume() to continue."
+        """
+        pause_msg = message or "Conversation is paused. Use resume() to continue."
+
+        if self._pause_db_manager:
+            # Update database
+            self._pause_db_manager.set_agent_pause_state(self._agent_id, True, pause_msg)
+        else:
+            # Fall back to in-memory state
+            self._is_paused = True
+            self._pause_message = pause_msg
+
+    def resume(self) -> None:
+        """Resume the agent's conversation."""
+        if self._pause_db_manager:
+            # Update database
+            self._pause_db_manager.set_agent_pause_state(self._agent_id, False, None)
+        else:
+            # Fall back to in-memory state
+            self._is_paused = False
 
     def last_message(self, agent: Optional[Agent] = None) -> Optional[Dict]:
         """The last message exchanged with the agent.
@@ -989,6 +1052,19 @@ class ConversableAgent(LLMAgent):
         Returns:
             ChatResult: an ChatResult object.
         """
+        # Automatically resume if paused when initiating chat and update database
+        if self._pause_db_manager:
+            # Update database entry for this agent
+            self._pause_db_manager.upsert_agent_status(
+                agent_id=self._agent_id,
+                agent_name=self._name,
+                is_paused=False,
+                pause_message=None
+            )
+        else:
+            # Fall back to in-memory state
+            self._is_paused = False
+
         _chat_info = locals().copy()
         _chat_info["sender"] = self
         consolidate_chat_info(_chat_info, uniform_sender=self)
@@ -1056,6 +1132,19 @@ class ConversableAgent(LLMAgent):
         Returns:
             ChatResult: an ChatResult object.
         """
+        # Automatically resume if paused when initiating chat and update database
+        if self._pause_db_manager:
+            # Update database entry for this agent
+            self._pause_db_manager.upsert_agent_status(
+                agent_id=self._agent_id,
+                agent_name=self._name,
+                is_paused=False,
+                pause_message=None
+            )
+        else:
+            # Fall back to in-memory state
+            self._is_paused = False
+
         _chat_info = locals().copy()
         _chat_info["sender"] = self
         consolidate_chat_info(_chat_info, uniform_sender=self)
@@ -1710,6 +1799,16 @@ class ConversableAgent(LLMAgent):
             - Tuple[bool, Union[str, Dict, None]]: A tuple containing a boolean indicating if the conversation
             should be terminated, and a human reply which can be a string, a dictionary, or None.
         """
+        # Check if the agent is paused first
+        if self.is_paused:  # This now checks database if available
+            iostream = IOStream.get_default()
+            if self._pause_db_manager:
+                pause_msg = self._pause_db_manager.get_pause_message(self._agent_id)
+            else:
+                pause_msg = self._pause_message
+            iostream.print(colored(f"\n>>>>>>>> {pause_msg}", "yellow"), flush=True)
+            return True, None
+
         iostream = IOStream.get_default()
 
         if config is None:
@@ -1823,6 +1922,16 @@ class ConversableAgent(LLMAgent):
             - Tuple[bool, Union[str, Dict, None]]: A tuple containing a boolean indicating if the conversation
             should be terminated, and a human reply which can be a string, a dictionary, or None.
         """
+        # Check if the agent is paused first
+        if self.is_paused:  # This now checks database if available
+            iostream = IOStream.get_default()
+            if self._pause_db_manager:
+                pause_msg = self._pause_db_manager.get_pause_message(self._agent_id)
+            else:
+                pause_msg = self._pause_message
+            iostream.print(colored(f"\n>>>>>>>> {pause_msg}", "yellow"), flush=True)
+            return True, None
+
         iostream = IOStream.get_default()
 
         if config is None:

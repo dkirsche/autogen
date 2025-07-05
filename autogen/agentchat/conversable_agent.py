@@ -5,6 +5,7 @@ import inspect
 import json
 import logging
 import re
+import uuid
 from collections import defaultdict
 from typing import Any, Awaitable, Callable, Dict, List, Literal, Optional, Tuple, Type, TypeVar, Union
 import warnings
@@ -119,6 +120,8 @@ class ConversableAgent(Agent):
                 (e.g. the GroupChatManager) to decide when to call upon this agent. (Default: system_message)
         """
         super().__init__(name)
+        self._agent_id = str(uuid.uuid4())  # Generate unique agent ID
+
         # a dictionary of conversations, default value is list
         self._oai_messages = defaultdict(list)
         self._oai_system_message = [{"content": system_message, "role": "system"}]
@@ -198,6 +201,20 @@ class ConversableAgent(Agent):
             "When restating the response, use the draft response as your base and only adjust it where needed. Do not include any metadata referring to revisions made."
         )
 
+        # Pause functionality - database-backed or in-memory fallback
+        self._is_paused = False
+        self._pause_message = "Conversation is paused. Use resume() to continue."
+
+        # Initialize database manager from environment variable
+        try:
+            from .pause_db_manager import initialize_pause_db_manager
+            self._pause_db_manager = initialize_pause_db_manager()
+            if not self._pause_db_manager.enabled:
+                self._pause_db_manager = None
+        except Exception as e:
+            logger.warning(f"Failed to initialize pause database manager: {e}")
+            self._pause_db_manager = None
+
     def register_reply(
         self,
         trigger: Union[Type[Agent], str, Agent, Callable[[Agent], bool], List],
@@ -274,6 +291,11 @@ class ConversableAgent(Agent):
         """Return the system message."""
         return self._oai_system_message[0]["content"]
 
+    @property
+    def agent_id(self) -> str:
+        """Get the unique agent ID."""
+        return self._agent_id
+
     def update_system_message(self, system_message: Union[str, List]):
         """Update the system message.
 
@@ -346,6 +368,42 @@ class ConversableAgent(Agent):
         or str value of the docker image name to use, or None when code execution is disabled.
         """
         return None if self._code_execution_config is False else self._code_execution_config.get("use_docker")
+
+    @property
+    def is_paused(self) -> bool:
+        """Check if the agent is currently paused."""
+        if self._pause_db_manager:
+            # Check database for pause state
+            return self._pause_db_manager.is_agent_paused(self._agent_id)
+        else:
+            # Fall back to in-memory state
+            return self._is_paused
+
+    def pause(self, message: Optional[str] = None) -> None:
+        """Pause the agent's conversation.
+
+        Args:
+            message (str, optional): Custom message to display when paused.
+                Defaults to "Conversation is paused. Use resume() to continue."
+        """
+        pause_msg = message or "Conversation is paused. Use resume() to continue."
+
+        if self._pause_db_manager:
+            # Update database
+            self._pause_db_manager.set_agent_pause_state(self._agent_id, True, pause_msg)
+        else:
+            # Fall back to in-memory state
+            self._is_paused = True
+            self._pause_message = pause_msg
+
+    def resume(self) -> None:
+        """Resume the agent's conversation."""
+        if self._pause_db_manager:
+            # Update database
+            self._pause_db_manager.set_agent_pause_state(self._agent_id, False, None)
+        else:
+            # Fall back to in-memory state
+            self._is_paused = False
 
     @staticmethod
     def _message_to_dict(message: Union[Dict, str]) -> Dict:
@@ -707,6 +765,19 @@ class ConversableAgent(Agent):
         Raises:
             RuntimeError: if any async reply functions are registered and not ignored in sync chat.
         """
+        # Automatically resume if paused when initiating chat and update database
+        if self._pause_db_manager:
+            # Update database entry for this agent
+            self._pause_db_manager.upsert_agent_status(
+                agent_id=self._agent_id,
+                agent_name=self._name,
+                is_paused=False,
+                pause_message=None
+            )
+        else:
+            # Fall back to in-memory state
+            self._is_paused = False
+
         for agent in [self, recipient]:
             agent._raise_exception_on_async_reply_functions()
             agent.previous_cache = agent.client_cache
@@ -740,6 +811,19 @@ class ConversableAgent(Agent):
                 "message" needs to be provided if the `generate_init_message` method is not overridden.
                           Otherwise, input() will be called to get the initial message.
         """
+        # Automatically resume if paused when initiating chat and update database
+        if self._pause_db_manager:
+            # Update database entry for this agent
+            self._pause_db_manager.upsert_agent_status(
+                agent_id=self._agent_id,
+                agent_name=self._name,
+                is_paused=False,
+                pause_message=None
+            )
+        else:
+            # Fall back to in-memory state
+            self._is_paused = False
+
         self._prepare_chat(recipient, clear_history)
         for agent in [self, recipient]:
             agent.previous_cache = agent.client_cache
@@ -1184,6 +1268,17 @@ class ConversableAgent(Agent):
             - Tuple[bool, Union[str, Dict, None]]: A tuple containing a boolean indicating if the conversation
             should be terminated, and a human reply which can be a string, a dictionary, or None.
         """
+        # Check if the agent is paused first
+        if self.is_paused:  # This now checks database if available
+            from ..io import IOStream
+            iostream = IOStream.get_default()
+            if self._pause_db_manager:
+                pause_msg = self._pause_db_manager.get_pause_message(self._agent_id)
+            else:
+                pause_msg = self._pause_message
+            iostream.print(f"\n>>>>>>>> {pause_msg}", flush=True)
+            return True, None
+
         # Function implementation...
 
         if config is None:
@@ -1296,6 +1391,17 @@ class ConversableAgent(Agent):
             - Tuple[bool, Union[str, Dict, None]]: A tuple containing a boolean indicating if the conversation
             should be terminated, and a human reply which can be a string, a dictionary, or None.
         """
+        # Check if the agent is paused first
+        if self.is_paused:  # This now checks database if available
+            from ..io import IOStream
+            iostream = IOStream.get_default()
+            if self._pause_db_manager:
+                pause_msg = self._pause_db_manager.get_pause_message(self._agent_id)
+            else:
+                pause_msg = self._pause_message
+            iostream.print(f"\n>>>>>>>> {pause_msg}", flush=True)
+            return True, None
+
         if config is None:
             config = self
         if messages is None:

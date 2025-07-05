@@ -5,7 +5,7 @@ Database manager for agent pause functionality using PostgreSQL.
 import logging
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
@@ -66,19 +66,22 @@ class PauseDBManager:
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
+        """
 
-        -- Create index on agent_name for external control queries
-        -- (agent_id already indexed as PRIMARY KEY for internal queries)
+        create_index_sql = """
         CREATE INDEX IF NOT EXISTS idx_agent_status_name ON agent_status(agent_name);
         """
-        
+
         conn = self._get_connection()
         if conn:
             try:
                 with conn.cursor() as cursor:
+                    # Execute table creation first
                     cursor.execute(create_table_sql)
+                    # Execute index creation separately
+                    cursor.execute(create_index_sql)
                 conn.commit()
-                logger.info("Agent status table ensured to exist")
+                logger.info("Agent status table and index ensured to exist")
             except Exception as e:
                 logger.error(f"Failed to create agent_status table: {e}")
             finally:
@@ -116,7 +119,7 @@ class PauseDBManager:
         if conn:
             try:
                 with conn.cursor() as cursor:
-                    now = datetime.now()
+                    now = datetime.now(timezone.utc)
                     cursor.execute(upsert_sql, (agent_id, agent_name, is_paused, pause_message, now, now))
                 conn.commit()
                 return True
@@ -187,7 +190,7 @@ class PauseDBManager:
         if conn:
             try:
                 with conn.cursor() as cursor:
-                    cursor.execute(update_sql, (is_paused, pause_message, datetime.now(), agent_id))
+                    cursor.execute(update_sql, (is_paused, pause_message, datetime.now(timezone.utc), agent_id))
                     success = cursor.rowcount > 0
                 conn.commit()
                 return success

@@ -390,7 +390,11 @@ class ConversableAgent(Agent):
 
         if self._pause_db_manager:
             # Update database
-            self._pause_db_manager.set_agent_pause_state(self._agent_id, True, pause_msg)
+            success = self._pause_db_manager.set_agent_pause_state(self._agent_id, True, pause_msg)
+            if not success:
+                logger.warning(f"Failed to pause agent with ID {self._agent_id} in database, falling back to in-memory")
+                self._is_paused = True
+                self._pause_message = pause_msg
         else:
             # Fall back to in-memory state
             self._is_paused = True
@@ -400,7 +404,10 @@ class ConversableAgent(Agent):
         """Resume the agent's conversation."""
         if self._pause_db_manager:
             # Update database
-            self._pause_db_manager.set_agent_pause_state(self._agent_id, False, None)
+            success = self._pause_db_manager.set_agent_pause_state(self._agent_id, False, None)
+            if not success:
+                logger.warning(f"Failed to resume agent with ID {self._agent_id} in database, falling back to in-memory")
+                self._is_paused = False
         else:
             # Fall back to in-memory state
             self._is_paused = False

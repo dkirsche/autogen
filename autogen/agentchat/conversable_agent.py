@@ -208,6 +208,7 @@ class ConversableAgent(Agent):
         # Initialize database manager from environment variable
         try:
             from .pause_db_manager import initialize_pause_db_manager
+
             self._pause_db_manager = initialize_pause_db_manager()
             if not self._pause_db_manager.enabled:
                 self._pause_db_manager = None
@@ -406,7 +407,9 @@ class ConversableAgent(Agent):
             # Update database
             success = self._pause_db_manager.set_agent_pause_state(self._agent_id, False, None)
             if not success:
-                logger.warning(f"Failed to resume agent with ID {self._agent_id} in database, falling back to in-memory")
+                logger.warning(
+                    f"Failed to resume agent with ID {self._agent_id} in database, falling back to in-memory"
+                )
                 self._is_paused = False
         else:
             # Fall back to in-memory state
@@ -776,10 +779,7 @@ class ConversableAgent(Agent):
         if self._pause_db_manager:
             # Update database entry for this agent
             self._pause_db_manager.upsert_agent_status(
-                agent_id=self._agent_id,
-                agent_name=self._name,
-                is_paused=False,
-                pause_message=None
+                agent_id=self._agent_id, agent_name=self._name, is_paused=False, pause_message=None
             )
         else:
             # Fall back to in-memory state
@@ -822,10 +822,7 @@ class ConversableAgent(Agent):
         if self._pause_db_manager:
             # Update database entry for this agent
             self._pause_db_manager.upsert_agent_status(
-                agent_id=self._agent_id,
-                agent_name=self._name,
-                is_paused=False,
-                pause_message=None
+                agent_id=self._agent_id, agent_name=self._name, is_paused=False, pause_message=None
             )
         else:
             # Fall back to in-memory state
@@ -1278,6 +1275,7 @@ class ConversableAgent(Agent):
         # Check if the agent is paused first
         if self.is_paused:  # This now checks database if available
             from ..io import IOStream
+
             iostream = IOStream.get_default()
             if self._pause_db_manager:
                 pause_msg = self._pause_db_manager.get_pause_message(self._agent_id)
@@ -1401,6 +1399,7 @@ class ConversableAgent(Agent):
         # Check if the agent is paused first
         if self.is_paused:  # This now checks database if available
             from ..io import IOStream
+
             iostream = IOStream.get_default()
             if self._pause_db_manager:
                 pause_msg = self._pause_db_manager.get_pause_message(self._agent_id)

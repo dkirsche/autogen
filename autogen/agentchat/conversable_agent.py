@@ -1274,14 +1274,11 @@ class ConversableAgent(Agent):
         """
         # Check if the agent is paused first
         if self.is_paused:  # This now checks database if available
-            from ..io import IOStream
-
-            iostream = IOStream.get_default()
             if self._pause_db_manager:
                 pause_msg = self._pause_db_manager.get_pause_message(self._agent_id)
             else:
                 pause_msg = self._pause_message
-            iostream.print(f"\n>>>>>>>> {pause_msg}", flush=True)
+            print(f"\n>>>>>>>> {pause_msg}", flush=True)
             return True, None
 
         # Function implementation...
@@ -1398,14 +1395,11 @@ class ConversableAgent(Agent):
         """
         # Check if the agent is paused first
         if self.is_paused:  # This now checks database if available
-            from ..io import IOStream
-
-            iostream = IOStream.get_default()
             if self._pause_db_manager:
                 pause_msg = self._pause_db_manager.get_pause_message(self._agent_id)
             else:
                 pause_msg = self._pause_message
-            iostream.print(f"\n>>>>>>>> {pause_msg}", flush=True)
+            print(f"\n>>>>>>>> {pause_msg}", flush=True)
             return True, None
 
         if config is None:

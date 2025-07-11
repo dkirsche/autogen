@@ -216,6 +216,15 @@ class ConversableAgent(Agent):
             logger.warning(f"Failed to initialize pause database manager: {e}")
             self._pause_db_manager = None
 
+        # Upsert agent status in database for logging
+        if self._pause_db_manager:
+            try:
+                self._pause_db_manager.upsert_agent_status(
+                    agent_id=self._agent_id, agent_name=self._name, is_paused=False, pause_message=None
+                )
+            except Exception as e:
+                logger.warning(f"Failed to upsert agent status in database: {e}")
+
     def register_reply(
         self,
         trigger: Union[Type[Agent], str, Agent, Callable[[Agent], bool], List],
@@ -394,12 +403,10 @@ class ConversableAgent(Agent):
             success = self._pause_db_manager.set_agent_pause_state(self._agent_id, True, pause_msg)
             if not success:
                 logger.warning(f"Failed to pause agent with ID {self._agent_id} in database, falling back to in-memory")
-                self._is_paused = True
-                self._pause_message = pause_msg
-        else:
-            # Fall back to in-memory state
-            self._is_paused = True
-            self._pause_message = pause_msg
+
+        # Fall back to in-memory state
+        self._is_paused = True
+        self._pause_message = pause_msg
 
     def resume(self) -> None:
         """Resume the agent's conversation."""
@@ -410,10 +417,8 @@ class ConversableAgent(Agent):
                 logger.warning(
                     f"Failed to resume agent with ID {self._agent_id} in database, falling back to in-memory"
                 )
-                self._is_paused = False
-        else:
-            # Fall back to in-memory state
-            self._is_paused = False
+
+        self._is_paused = False
 
     @staticmethod
     def _message_to_dict(message: Union[Dict, str]) -> Dict:
@@ -781,9 +786,7 @@ class ConversableAgent(Agent):
             self._pause_db_manager.upsert_agent_status(
                 agent_id=self._agent_id, agent_name=self._name, is_paused=False, pause_message=None
             )
-        else:
-            # Fall back to in-memory state
-            self._is_paused = False
+        self._is_paused = False
 
         for agent in [self, recipient]:
             agent._raise_exception_on_async_reply_functions()
@@ -824,9 +827,7 @@ class ConversableAgent(Agent):
             self._pause_db_manager.upsert_agent_status(
                 agent_id=self._agent_id, agent_name=self._name, is_paused=False, pause_message=None
             )
-        else:
-            # Fall back to in-memory state
-            self._is_paused = False
+        self._is_paused = False
 
         self._prepare_chat(recipient, clear_history)
         for agent in [self, recipient]:
